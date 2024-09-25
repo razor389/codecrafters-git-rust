@@ -70,7 +70,7 @@ fn print_blob_content(blob_sha: &str) -> std::io::Result<()> {
     // Git objects are stored in the format: "<type> <size>\0<content>"
     if let Some(null_pos) = decompressed_data.iter().position(|&b| b == 0) {
         let content = &decompressed_data[null_pos + 1..];
-        println!("{}", String::from_utf8_lossy(content));
+        print!("{}", String::from_utf8_lossy(content));
     } else {
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid object format"));
     }
