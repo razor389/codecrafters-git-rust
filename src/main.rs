@@ -52,6 +52,18 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
+        "ls-tree" => {
+            if args.len() != 4 || args[2] != "--name-only" {
+                eprintln!("Usage: ls-tree --name-only <tree_sha>");
+                return;
+            }
+
+            let tree_sha = &args[3];
+            match list_tree_names(tree_sha) {
+                Ok(_) => (),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
         _ => {
             println!("unknown command: {}", args[1]);
         }
@@ -126,4 +138,49 @@ fn create_blob(file_path: &str) -> io::Result<String> {
     object_file.write_all(&compressed_data)?;
 
     Ok(sha1_hex)
+}
+
+// Function to list the file names from a tree object
+fn list_tree_names(tree_sha: &str) -> io::Result<()> {
+    if tree_sha.len() < 2 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid tree SHA"));
+    }
+
+    let dir = &tree_sha[0..2];
+    let file = &tree_sha[2..];
+
+    let object_path = format!(".git/objects/{}/{}", dir, file);
+
+    if !Path::new(&object_path).exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "Tree object not found"));
+    }
+
+    let compressed_data = fs::read(&object_path)?;
+    let mut decoder = flate2::read::ZlibDecoder::new(&compressed_data[..]);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data)?;
+
+    // Parse tree object entries: "<mode> <name>\0<sha1>"
+    let mut i = 0;
+    while i < decompressed_data.len() {
+        // Find the first null byte separating the name from the SHA-1 hash
+        let null_pos = decompressed_data[i..]
+            .iter()
+            .position(|&b| b == 0)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format"))?;
+
+        // Extract the file name (ignore the mode and SHA-1 for `--name-only`)
+        let entry = &decompressed_data[i..i + null_pos];
+        let entry_str = String::from_utf8_lossy(entry);
+
+        // Extract the name (everything after the mode)
+        if let Some((_, name)) = entry_str.split_once(' ') {
+            println!("{}", name);
+        }
+
+        // Skip the null byte and SHA-1 (20 bytes) after the entry
+        i += null_pos + 1 + 20;
+    }
+
+    Ok(())
 }
