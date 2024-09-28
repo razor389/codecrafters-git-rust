@@ -168,34 +168,37 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
     // Parse tree object entries: "<mode> <name>\0<sha1>"
     let mut i = 0;
     while i < decompressed_data.len() {
-        // Skip the mode (until the first space)
+        // Parse the mode (until the first space)
         let space_pos = decompressed_data[i..]
             .iter()
             .position(|&b| b == b' ')
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no space found"))?;
 
         // Extract the mode for debugging
-        let mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
-        println!("Parsed mode: {}", mode);
+        let _mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
+        //println!("Parsed mode: {}", mode);
+
+        // Skip the mode and space
+        i += space_pos + 1;
 
         // Find the first null byte separating the name from the SHA-1 hash
-        let null_pos = decompressed_data[i + space_pos + 1..]
+        let null_pos = decompressed_data[i..]
             .iter()
             .position(|&b| b == 0)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no null byte found"))?;
 
         // Extract the file name (skip mode and space)
-        let entry = &decompressed_data[i + space_pos + 1..i + space_pos + 1 + null_pos];
+        let entry = &decompressed_data[i..i + null_pos];
         let entry_str = String::from_utf8_lossy(entry);
 
         // Log the parsed name
-        println!("Parsed name: {}", entry_str);
+        //println!("Parsed name: {}", entry_str);
 
         // Print the name only
         println!("{}", entry_str);
 
         // Skip the null byte and SHA-1 (20 bytes) after the entry
-        i += space_pos + 1 + null_pos + 1 + 20;
+        i += null_pos + 1 + 20;
     }
 
     Ok(())
