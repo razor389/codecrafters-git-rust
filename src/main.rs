@@ -79,7 +79,13 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
-
+        "write-tree" => {
+            // Call the function to write the tree and output the SHA1 of the tree
+            match write_tree() {
+                Ok(tree_sha) => println!("{}", tree_sha),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
 
         _ => {
             println!("unknown command: {}", args[1]);
@@ -236,4 +242,76 @@ fn parse_tree_entries(object_data: &[u8], name_only: bool) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn write_tree() -> io::Result<String> {
+    // Get the current directory
+    let current_dir = Path::new(".");
+
+    // Recursively write tree for the current directory and return the SHA-1 of the tree object
+    write_tree_recursive(current_dir)
+}
+
+fn write_tree_recursive(dir: &Path) -> io::Result<String> {
+    let mut tree_entries = Vec::new();
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let file_name_str = file_name.to_string_lossy();
+
+        if file_name_str == ".git" {
+            continue; // Skip the .git directory
+        }
+
+        if path.is_file() {
+            // It's a file, create a blob and get the SHA-1
+            let sha1 = create_blob(&path.to_string_lossy())?;
+            let mode = "100644"; // Regular file mode
+            tree_entries.push(format!("{} {} {:?}\0", mode, file_name_str, hex::decode(sha1).unwrap()));
+        } else if path.is_dir() {
+            // It's a directory, recursively write tree and get the tree SHA-1
+            let sha1 = write_tree_recursive(&path)?;
+            let mode = "40000"; // Directory mode
+            tree_entries.push(format!("{} {} {:?}\0", mode, file_name_str, hex::decode(sha1).unwrap()));
+        }
+    }
+
+    // Concatenate the tree entries into a single byte buffer
+    let mut tree_data = Vec::new();
+    for entry in tree_entries {
+        tree_data.extend(entry.as_bytes());
+    }
+
+    // Create the tree header
+    let tree_header = format!("tree {}\0", tree_data.len());
+    let mut full_data = Vec::new();
+    full_data.extend(tree_header.as_bytes());
+    full_data.extend(tree_data);
+
+    // Compute the SHA-1 of the tree object
+    let mut hasher = Sha1::new();
+    hasher.update(&full_data);
+    let sha1_hash = hasher.finalize();
+    let sha1_hex = hex::encode(sha1_hash);
+
+    // Write the compressed tree object to the .git/objects directory
+    let dir = &sha1_hex[0..2];
+    let file = &sha1_hex[2..];
+    let object_dir = format!(".git/objects/{}", dir);
+    let object_path = format!("{}/{}", object_dir, file);
+
+    if !Path::new(&object_dir).exists() {
+        fs::create_dir(&object_dir)?;
+    }
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&full_data)?;
+    let compressed_data = encoder.finish()?;
+
+    let mut object_file = File::create(object_path)?;
+    object_file.write_all(&compressed_data)?;
+
+    Ok(sha1_hex)
 }
