@@ -279,7 +279,7 @@ fn write_tree_recursive(dir: &Path) -> io::Result<String> {
     }
 
     // Concatenate the tree entries into a single byte buffer
-    let mut tree_data = Vec::new();
+    let mut tree_data: Vec<u8> = Vec::new();
     for entry in tree_entries {
         tree_data.extend(entry.as_bytes());
     }
