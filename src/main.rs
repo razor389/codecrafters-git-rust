@@ -163,7 +163,7 @@ fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
     let file = &tree_sha[2..];
 
     let object_path = format!(".git/objects/{}/{}", dir, file);
-    
+    println!("{}",object_path);
     if !Path::new(&object_path).exists() {
         return Err(io::Error::new(io::ErrorKind::NotFound, "Tree object not found"));
     }
