@@ -54,13 +54,24 @@ fn main() {
             }
         }
         "ls-tree" => {
-            if args.len() != 4 || args[2] != "--name-only" {
-                eprintln!("Usage: ls-tree --name-only <tree_sha>");
+            if args.len() < 3 {
+                eprintln!("Usage: ls-tree [--name-only] <tree_sha>");
                 return;
             }
-
-            let tree_sha = &args[3];
-            match list_tree_names(tree_sha) {
+        
+            let mut name_only = false;
+            let tree_sha;
+        
+            // Check if the --name-only flag is provided
+            if args[1] == "--name-only" {
+                name_only = true;
+                tree_sha = &args[2];
+            } else {
+                tree_sha = &args[1];
+            }
+        
+            // Call the function to list the tree entries
+            match list_tree(tree_sha, name_only) {
                 Ok(_) => (),
                 Err(e) => eprintln!("Error: {}", e),
             }
@@ -141,8 +152,8 @@ fn create_blob(file_path: &str) -> io::Result<String> {
     Ok(sha1_hex)
 }
 
-// Function to list the file names from a tree object
-fn list_tree_names(tree_sha: &str) -> io::Result<()> {
+// Function to list the tree entries, either full or name-only
+fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
     if tree_sha.len() < 2 {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid tree SHA"));
     }
@@ -162,9 +173,6 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
 
-    // Log the raw decompressed data for debugging
-    println!("Decompressed tree data (hex): {:?}", decompressed_data);
-
     // Parse tree object entries: "<mode> <name>\0<sha1>"
     let mut i = 0;
     while i < decompressed_data.len() {
@@ -174,12 +182,9 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
             .position(|&b| b == b' ')
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no space found"))?;
 
-        // Extract the mode for debugging
+        // Extract the mode
         let mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
-        println!("Parsed mode: {}", mode);
-
-        // Skip the mode and space
-        i += space_pos + 1;
+        i += space_pos + 1;  // Skip the mode and space
 
         // Find the first null byte separating the name from the SHA-1 hash
         let null_pos = decompressed_data[i..]
@@ -187,18 +192,25 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
             .position(|&b| b == 0)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no null byte found"))?;
 
-        // Extract the file name (skip mode and space)
-        let entry = &decompressed_data[i..i + null_pos];
-        let entry_str = String::from_utf8_lossy(entry);
+        // Extract the file/directory name
+        let name = String::from_utf8_lossy(&decompressed_data[i..i + null_pos]);
+        i += null_pos + 1;  // Skip the null byte
 
-        // Log the parsed name
-        println!("Parsed name: {}", entry_str);
+        // Extract the SHA-1 hash (next 20 bytes)
+        let sha1 = &decompressed_data[i..i + 20];
+        let sha1_str = hex::encode(sha1);
+        i += 20;
 
-        // Print the name only
-        println!("{}", entry_str);
+        // Determine if it's a blob (file) or a tree (directory)
+        let object_type = if mode == "40000" { "tree" } else { "blob" };
 
-        // Skip the null byte and SHA-1 (20 bytes) after the entry
-        i += null_pos + 1 + 20;
+        // Output based on whether --name-only was passed
+        if name_only {
+            println!("{}", name);
+        } else {
+            // Full output: "<mode> <type> <sha> <name>"
+            println!("{} {} {}    {}", mode, object_type, sha1_str, name);
+        }
     }
 
     Ok(())
