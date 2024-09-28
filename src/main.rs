@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::fs::File;
+use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use sha1::{Sha1, Digest};
