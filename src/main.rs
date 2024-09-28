@@ -54,28 +54,29 @@ fn main() {
             }
         }
         "ls-tree" => {
-            if args.len() < 3 {
+            if args.len() < 2 {
                 eprintln!("Usage: ls-tree [--name-only] <tree_sha>");
                 return;
             }
-        
+
             let mut name_only = false;
             let tree_sha;
-        
+
             // Check if the --name-only flag is provided
-            if args[1] == "--name-only" {
+            if args.len() >= 3 && args[1] == "--name-only" {
                 name_only = true;
-                tree_sha = &args[2];
+                tree_sha = &args[2];  // tree_sha is in args[2] if --name-only is present
             } else {
-                tree_sha = &args[1];
+                tree_sha = &args[1];  // tree_sha is in args[1] if no --name-only
             }
-        
+
             // Call the function to list the tree entries
             match list_tree(tree_sha, name_only) {
                 Ok(_) => (),
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
+
         _ => {
             println!("unknown command: {}", args[1]);
         }
@@ -162,7 +163,7 @@ fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
     let file = &tree_sha[2..];
 
     let object_path = format!(".git/objects/{}/{}", dir, file);
-    println!("{}", object_path);
+    
     if !Path::new(&object_path).exists() {
         return Err(io::Error::new(io::ErrorKind::NotFound, "Tree object not found"));
     }
