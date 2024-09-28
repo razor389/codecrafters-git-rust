@@ -269,12 +269,12 @@ fn write_tree_recursive(dir: &Path) -> io::Result<String> {
             // It's a file, create a blob and get the SHA-1
             let sha1 = create_blob(&path.to_string_lossy())?;
             let mode = "100644"; // Regular file mode
-            tree_entries.push(format!("{} {} {:?}\0", mode, file_name_str, hex::decode(sha1).unwrap()));
+            tree_entries.push(format!("{} {} \0{:?}", mode, file_name_str, hex::decode(sha1).unwrap()));
         } else if path.is_dir() {
             // It's a directory, recursively write tree and get the tree SHA-1
             let sha1 = write_tree_recursive(&path)?;
             let mode = "40000"; // Directory mode
-            tree_entries.push(format!("{} {} {:?}\0", mode, file_name_str, hex::decode(sha1).unwrap()));
+            tree_entries.push(format!("{} {} \0{:?}", mode, file_name_str, hex::decode(sha1).unwrap()));
         }
     }
 
