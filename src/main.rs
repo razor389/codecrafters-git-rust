@@ -167,7 +167,7 @@ fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
     let file = &tree_sha[2..];
 
     let object_path = format!(".git/objects/{}/{}", dir, file);
-    println!("{}",object_path);
+
     if !Path::new(&object_path).exists() {
         return Err(io::Error::new(io::ErrorKind::NotFound, "Tree object not found"));
     }
@@ -178,33 +178,50 @@ fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
 
-    // Parse tree object entries: "<mode> <name>\0<sha1>"
+    // The first part is the object header, which we need to skip.
+    // The header format is: "tree <size>\0", where <size> is the size of the actual object data.
+    if let Some(null_byte_pos) = decompressed_data.iter().position(|&b| b == 0) {
+        // Skip the header
+        let object_data = &decompressed_data[null_byte_pos + 1..];
+
+        // Now process the tree entries in the object_data
+        parse_tree_entries(object_data, name_only)?;
+    } else {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid tree object format"));
+    }
+
+    Ok(())
+}
+
+// Function to parse tree entries and output either full or name-only
+fn parse_tree_entries(object_data: &[u8], name_only: bool) -> io::Result<()> {
     let mut i = 0;
-    while i < decompressed_data.len() {
+
+    while i < object_data.len() {
         // Parse the mode (until the first space)
-        let space_pos = decompressed_data[i..]
+        let space_pos = object_data[i..]
             .iter()
             .position(|&b| b == b' ')
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no space found"))?;
 
-        // Extract the mode
-        let mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
-        i += space_pos + 1;  // Skip the mode and space
+        // Extract the mode (e.g., "100644" for files or "40000" for directories)
+        let mode = String::from_utf8_lossy(&object_data[i..i + space_pos]);
+        i += space_pos + 1;  // Skip the mode and the space
 
         // Find the first null byte separating the name from the SHA-1 hash
-        let null_pos = decompressed_data[i..]
+        let null_pos = object_data[i..]
             .iter()
             .position(|&b| b == 0)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no null byte found"))?;
 
         // Extract the file/directory name
-        let name = String::from_utf8_lossy(&decompressed_data[i..i + null_pos]);
+        let name = String::from_utf8_lossy(&object_data[i..i + null_pos]);
         i += null_pos + 1;  // Skip the null byte
 
         // Extract the SHA-1 hash (next 20 bytes)
-        let sha1 = &decompressed_data[i..i + 20];
+        let sha1 = &object_data[i..i + 20];
         let sha1_str = hex::encode(sha1);
-        i += 20;
+        i += 20;  // Skip the 20-byte SHA-1 hash
 
         // Determine if it's a blob (file) or a tree (directory)
         let object_type = if mode == "40000" { "tree" } else { "blob" };
