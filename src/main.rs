@@ -176,7 +176,7 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
 
         // Extract the mode for debugging
         let _mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
-        //println!("Parsed mode: {}", mode);
+        println!("Parsed mode: {}", mode);
 
         // Skip the mode and space
         i += space_pos + 1;
@@ -192,7 +192,7 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
         let entry_str = String::from_utf8_lossy(entry);
 
         // Log the parsed name
-        //println!("Parsed name: {}", entry_str);
+        println!("Parsed name: {}", entry_str);
 
         // Print the name only
         println!("{}", entry_str);
