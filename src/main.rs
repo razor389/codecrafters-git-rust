@@ -269,26 +269,26 @@ fn write_tree_recursive(dir: &Path) -> io::Result<String> {
             // It's a file, create a blob and get the SHA-1
             let sha1 = create_blob(&path.to_string_lossy())?;
             let mode = "100644"; // Regular file mode
-            tree_entries.push(format!("{} {} \0{:?}", mode, file_name_str, hex::decode(sha1).unwrap()));
+            
+            // Append mode, name, and binary SHA-1 to the tree entry
+            tree_entries.extend_from_slice(format!("{} {}\0", mode, file_name_str).as_bytes());
+            tree_entries.extend_from_slice(&hex::decode(sha1).unwrap());  // Append 20-byte binary SHA-1
         } else if path.is_dir() {
             // It's a directory, recursively write tree and get the tree SHA-1
             let sha1 = write_tree_recursive(&path)?;
             let mode = "40000"; // Directory mode
-            tree_entries.push(format!("{} {} \0{:?}", mode, file_name_str, hex::decode(sha1).unwrap()));
+
+            // Append mode, name, and binary SHA-1 to the tree entry
+            tree_entries.extend_from_slice(format!("{} {}\0", mode, file_name_str).as_bytes());
+            tree_entries.extend_from_slice(&hex::decode(sha1).unwrap());  // Append 20-byte binary SHA-1
         }
     }
 
-    // Concatenate the tree entries into a single byte buffer
-    let mut tree_data: Vec<u8> = Vec::new();
-    for entry in tree_entries {
-        tree_data.extend(entry.as_bytes());
-    }
-
     // Create the tree header
-    let tree_header = format!("tree {}\0", tree_data.len());
+    let tree_header = format!("tree {}\0", tree_entries.len());
     let mut full_data = Vec::new();
     full_data.extend(tree_header.as_bytes());
-    full_data.extend(tree_data);
+    full_data.extend(tree_entries);
 
     // Compute the SHA-1 of the tree object
     let mut hasher = Sha1::new();
