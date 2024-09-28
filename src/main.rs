@@ -63,11 +63,14 @@ fn main() {
             let tree_sha;
 
             // Check if the --name-only flag is provided
-            if args.len() >= 3 && args[1] == "--name-only" {
+            if args.len() == 4 && args[2] == "--name-only" {
                 name_only = true;
-                tree_sha = &args[2];  // tree_sha is in args[2] if --name-only is present
+                tree_sha = &args[3];  // tree_sha is in args[3] if --name-only is present
+            } else if args.len() == 3 {
+                tree_sha = &args[2];  // tree_sha is in args[2] if --name-only is absent
             } else {
-                tree_sha = &args[1];  // tree_sha is in args[1] if no --name-only
+                eprintln!("Usage: ls-tree [--name-only] <tree_sha>");
+                return;
             }
 
             // Call the function to list the tree entries
@@ -76,6 +79,7 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
+
 
         _ => {
             println!("unknown command: {}", args[1]);
