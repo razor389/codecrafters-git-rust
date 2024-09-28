@@ -269,9 +269,10 @@ fn write_tree_recursive(dir: &Path) -> io::Result<String> {
             // It's a file, create a blob and get the SHA-1
             let sha1 = create_blob(&path.to_string_lossy())?;
             let mode = "100644"; // Regular file mode
-            
+
             // Append mode, name, and binary SHA-1 to the tree entry
-            tree_entries.extend_from_slice(format!("{} {}\0", mode, file_name_str).as_bytes());
+            tree_entries.extend_from_slice(format!("{} {}", mode, file_name_str).as_bytes());
+            tree_entries.push(0u8);  // Null byte separator
             tree_entries.extend_from_slice(&hex::decode(sha1).unwrap());  // Append 20-byte binary SHA-1
         } else if path.is_dir() {
             // It's a directory, recursively write tree and get the tree SHA-1
@@ -279,7 +280,8 @@ fn write_tree_recursive(dir: &Path) -> io::Result<String> {
             let mode = "40000"; // Directory mode
 
             // Append mode, name, and binary SHA-1 to the tree entry
-            tree_entries.extend_from_slice(format!("{} {}\0", mode, file_name_str).as_bytes());
+            tree_entries.extend_from_slice(format!("{} {}", mode, file_name_str).as_bytes());
+            tree_entries.push(0u8);  // Null byte separator
             tree_entries.extend_from_slice(&hex::decode(sha1).unwrap());  // Append 20-byte binary SHA-1
         }
     }
