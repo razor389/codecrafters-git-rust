@@ -156,30 +156,34 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
     }
 
     let compressed_data = fs::read(&object_path)?;
-    let mut decoder = flate2::read::ZlibDecoder::new(&compressed_data[..]);
+    let mut decoder = ZlibDecoder::new(&compressed_data[..]);
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data)?;
 
     // Parse tree object entries: "<mode> <name>\0<sha1>"
     let mut i = 0;
     while i < decompressed_data.len() {
+        // Skip the mode (until the first space)
+        let space_pos = decompressed_data[i..]
+            .iter()
+            .position(|&b| b == b' ')
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no space found"))?;
+        
         // Find the first null byte separating the name from the SHA-1 hash
-        let null_pos = decompressed_data[i..]
+        let null_pos = decompressed_data[i + space_pos + 1..]
             .iter()
             .position(|&b| b == 0)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format"))?;
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no null byte found"))?;
 
-        // Extract the file name (ignore the mode and SHA-1 for `--name-only`)
-        let entry = &decompressed_data[i..i + null_pos];
+        // Extract the file name (skip mode and the space)
+        let entry = &decompressed_data[i + space_pos + 1..i + space_pos + 1 + null_pos];
         let entry_str = String::from_utf8_lossy(entry);
 
-        // Extract the name (everything after the mode)
-        if let Some((_, name)) = entry_str.split_once(' ') {
-            println!("{}", name);
-        }
+        // Print the name only
+        println!("{}", entry_str);
 
         // Skip the null byte and SHA-1 (20 bytes) after the entry
-        i += null_pos + 1 + 20;
+        i += space_pos + 1 + null_pos + 1 + 20;
     }
 
     Ok(())
