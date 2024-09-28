@@ -175,7 +175,7 @@ fn list_tree_names(tree_sha: &str) -> io::Result<()> {
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Invalid tree format: no space found"))?;
 
         // Extract the mode for debugging
-        let _mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
+        let mode = String::from_utf8_lossy(&decompressed_data[i..i + space_pos]);
         println!("Parsed mode: {}", mode);
 
         // Skip the mode and space
