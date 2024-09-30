@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::fs::File;
+use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -86,7 +87,67 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
+        "commit-tree" => {
+            // Parse arguments for commit-tree
+            let mut tree_sha = None;
+            let mut commit_message = None;
+            let mut parent_sha = None;
 
+            let mut i = 2;  // Start parsing after the command
+            while i < args.len() {
+                match args[i].as_str() {
+                    "-m" => {
+                        if i + 1 >= args.len() {
+                            eprintln!("Error: No commit message provided with -m.");
+                            return;
+                        }
+                        commit_message = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    "-p" => {
+                        if i + 1 >= args.len() {
+                            eprintln!("Error: No parent commit SHA provided with -p.");
+                            return;
+                        }
+                        parent_sha = Some(args[i + 1].clone());
+                        i += 2;
+                    }
+                    _ => {
+                        // Any unrecognized argument will be treated as the tree SHA
+                        if tree_sha.is_none() {
+                            tree_sha = Some(args[i].clone());
+                        } else {
+                            eprintln!("Error: Unknown argument '{}'.", args[i]);
+                            return;
+                        }
+                        i += 1;
+                    }
+                }
+            }
+
+            // Ensure we have the mandatory arguments (tree_sha and message)
+            let tree_sha = match tree_sha {
+                Some(sha) => sha,
+                None => {
+                    eprintln!("Error: No tree SHA provided.");
+                    return;
+                }
+            };
+            let commit_message = match commit_message {
+                Some(msg) => msg,
+                None => {
+                    eprintln!("Error: No commit message provided.");
+                    return;
+                }
+            };
+
+            // Call the function to create the commit
+            match create_commit(&tree_sha, &commit_message, parent_sha.as_deref()) {
+                Ok(commit_sha) => println!("{}", commit_sha),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
+    
         _ => {
             println!("unknown command: {}", args[1]);
         }
@@ -323,4 +384,77 @@ fn write_tree_recursive(dir: &Path) -> io::Result<String> {
     object_file.write_all(&compressed_data)?;
 
     Ok(sha1_hex)
+}
+
+// Function to create a commit object, store it, and return the commit SHA-1
+fn create_commit(tree_sha: &str, message: &str, parent_sha: Option<&str>) -> io::Result<String> {
+    // Author/committer information (In real-world, you would probably read this from a config)
+    let author_name = "Author Name";
+    let author_email = "author@example.com";
+    let committer_name = "Committer Name";
+    let committer_email = "committer@example.com";
+
+    // Get the current time for the commit timestamp
+    let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
+    };
+    let timezone = "+0000"; // For simplicity, using UTC
+
+    // Start building the commit data
+    let mut commit_data = format!("tree {}\n", tree_sha);
+
+    // If there is a parent commit, add it to the commit data
+    if let Some(parent) = parent_sha {
+        commit_data.push_str(&format!("parent {}\n", parent));
+    }
+
+    // Add author and committer information
+    commit_data.push_str(&format!(
+        "author {} <{}> {} {}\n",
+        author_name, author_email, timestamp, timezone
+    ));
+    commit_data.push_str(&format!(
+        "committer {} <{}> {} {}\n",
+        committer_name, committer_email, timestamp, timezone
+    ));
+
+    // Add an extra newline before the commit message, as required by Git
+    commit_data.push_str("\n");
+    commit_data.push_str(message);
+    commit_data.push_str("\n");
+
+    // Create the commit header
+    let commit_header = format!("commit {}\0", commit_data.len());
+    let mut full_commit_data = Vec::new();
+    full_commit_data.extend(commit_header.as_bytes());
+    full_commit_data.extend(commit_data.as_bytes());
+
+    // Compute the SHA-1 of the commit object
+    let mut hasher = Sha1::new();
+    hasher.update(&full_commit_data);
+    let sha1_hash = hasher.finalize();
+    let commit_sha = hex::encode(sha1_hash);
+
+    // Write the compressed commit object to the .git/objects directory
+    let dir = &commit_sha[0..2];
+    let file = &commit_sha[2..];
+    let object_dir = format!(".git/objects/{}", dir);
+    let object_path = format!("{}/{}", object_dir, file);
+
+    if !Path::new(&object_dir).exists() {
+        fs::create_dir(&object_dir)?;
+    }
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&full_commit_data)?;
+    let compressed_data = encoder.finish()?;
+
+    let mut object_file = File::create(object_path)?;
+    object_file.write_all(&compressed_data)?;
+
+    // Update the HEAD to point to the new commit
+    fs::write(".git/HEAD", format!("{}\n", commit_sha))?;
+
+    Ok(commit_sha)
 }
