@@ -499,13 +499,13 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     };
 
     // Step 3: Parse refs and get the HEAD commit SHA
-    let head_commit_sha = match parse_refs(&refs_data) {
-        Some(sha) => sha,
+    let (head_commit_sha, capabilities) = match parse_refs(&refs_data) {
+        Some((sha, caps)) => (sha, caps),
         None => return Err(io::Error::new(io::ErrorKind::NotFound, "HEAD commit not found")),
     };
 
     // Step 4: Request the packfile via POST to git-upload-pack
-    let pack_data = fetch_packfile(remote_repo, &head_commit_sha).await?;
+    let pack_data = fetch_packfile(remote_repo, &head_commit_sha, &capabilities).await?;
 
     // Step 5: Store the packfile in the .git directory
     store_packfile(target_dir, pack_data)?;
@@ -520,29 +520,40 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     Ok(())
 }
 
-async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<u8>, io::Error> {
+async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: &str) -> Result<Vec<u8>, io::Error> {
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    // Step 1: Create the 'want' line with SHA-1 and capabilities
-    let want_line = format!(
-        "want {} multi_ack_detailed side-band ofs-delta shallow no-progress include-tag\n",
-        head_commit_sha
-    );
-    
-    // Step 2: Calculate the length of the want line including 4 bytes for the length itself
+    // Parse the capabilities that the server supports
+    let multi_ack_detailed = capabilities.contains("multi_ack_detailed");
+    let no_done = capabilities.contains("no-done");
+    let allow_reachable_sha1_in_want = capabilities.contains("allow-reachable-sha1-in-want");
+
+    // Step 1: Create the 'want' line with the capabilities that the server supports
+    let mut want_line = format!("want {}", head_commit_sha);
+    if multi_ack_detailed {
+        want_line.push_str(" multi_ack_detailed");
+    }
+    if allow_reachable_sha1_in_want {
+        want_line.push_str(" allow-reachable-sha1-in-want");
+    }
+    want_line.push_str(" ofs-delta side-band shallow no-progress include-tag\n");
+
+    // Step 2: Calculate the length of the want line including the 4-byte length prefix
     let want_length = format!("{:04x}", want_line.len() + 4);
 
-    // Step 3: Construct the full request body (want + flush)
+    // Step 3: Construct the request body
     let mut request_body = format!("{}{}0000", want_length, want_line);
 
     // Step 4: If applicable, send 'have' lines (for objects the client already has)
-    // In a simple case, we skip 'have', but this is where we'd add them if needed.
-    
-    // Step 5: Add a 'done' line to indicate we are ready to receive the packfile
-    request_body.push_str("done\n");
+    // In a simple case, we can skip sending 'have' lines.
 
-    // Step 6: Send the POST request
+    // Step 5: Only send a 'done' line if the server does not use 'no-done'
+    if !no_done {
+        request_body.push_str("done\n");
+    }
+
+    // Step 6: Send the POST request to fetch the packfile
     let client = reqwest::Client::new();
     let response = client
         .post(&upload_pack_url)
@@ -572,6 +583,7 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     // Step 9: Return the packfile data
     Ok(pack_data.to_vec())
 }
+
 
 // Store the downloaded packfile in the .git/objects/pack directory
 fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
@@ -667,7 +679,7 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
 }
 
 // Parse the refs response using the Git Smart HTTP protocol
-fn parse_refs(refs_data: &[u8]) -> Option<String> {
+fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
     let refs_str = String::from_utf8_lossy(refs_data);
 
     // Debug: Print the entire refs response for analysis
@@ -675,6 +687,7 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
 
     let mut head_ref: Option<String> = None;
     let mut branch_sha: Option<String> = None;
+    let mut capabilities: Option<String> = None;
     let mut processing_refs = false; // Set to true when we start processing refs
 
     for line in refs_str.lines() {
@@ -725,14 +738,21 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
                         }
                     }
                 }
+
+                // Capture the capabilities (part after the NUL character)
+                if parts.len() > 1 {
+                    capabilities = Some(parts[1].to_string());
+                    println!("Found capabilities: {}", capabilities.as_ref().unwrap());
+                }
             }
         }
     }
 
-    // Return the branch SHA if found
+    // Return the branch SHA and capabilities if found
     if let Some(sha) = branch_sha {
-        return Some(sha);
+        return Some((sha, capabilities.unwrap_or_default()));
     }
+    
     eprintln!("HEAD ref not found.");
     None
 }
