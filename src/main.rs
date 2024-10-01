@@ -520,7 +520,6 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     Ok(())
 }
 
-// Send a POST request to fetch the packfile for the HEAD commit
 async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<u8>, io::Error> {
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
@@ -534,15 +533,16 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     // Step 2: Calculate the length of the want line including 4 bytes for the length itself
     let want_length = format!("{:04x}", want_line.len() + 4);
 
-    // Step 3: Create the full request body with length-prefixed want line and flush pkt-line
-    let request_body = format!(
-        "{}{}0000",  // Flush pkt-line at the end (0000)
-        want_length, want_line
-    );
+    // Step 3: Construct the full request body (want + flush)
+    let mut request_body = format!("{}{}0000", want_length, want_line);
 
-    println!("Request body:\n{}", request_body); // Debugging
+    // Step 4: If applicable, send 'have' lines (for objects the client already has)
+    // In a simple case, we skip 'have', but this is where we'd add them if needed.
+    
+    // Step 5: Add a 'done' line to indicate we are ready to receive the packfile
+    request_body.push_str("done\n");
 
-    // Step 4: Send the POST request
+    // Step 6: Send the POST request
     let client = reqwest::Client::new();
     let response = client
         .post(&upload_pack_url)
@@ -554,7 +554,7 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
             io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err))
         })?;
 
-    // Step 5: Check if the response is successful
+    // Step 7: Check if the response is successful
     if !response.status().is_success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
@@ -562,22 +562,14 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
         ));
     }
 
-    // Step 6: Read the response body (packfile data)
+    // Step 8: Read the response body (packfile data)
     let pack_data = response.bytes().await.map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
     })?;
 
     println!("Downloaded packfile size: {} bytes", pack_data.len());
 
-    // Step 7: Check if the downloaded packfile is empty
-    if pack_data.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Downloaded packfile is empty".to_string(),
-        ));
-    }
-
-    // Step 8: Return the packfile data
+    // Step 9: Return the packfile data
     Ok(pack_data.to_vec())
 }
 
