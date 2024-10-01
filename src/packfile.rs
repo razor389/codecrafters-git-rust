@@ -15,7 +15,11 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 
     println!("Packfile stored at: {}", pack_file_path);
 
-    // Step 2: Parse and index the packfile manually
+    // Debug: Log the size of the downloaded packfile
+    println!("Packfile downloaded and stored at: {} (size: {} bytes)", pack_file_path, pack_data.len());
+
+    // Step 2: Validate and index the packfile
+    println!("Starting packfile validation...");
     index_packfile(pack_data, &pack_dir)?;
 
     Ok(())
@@ -23,6 +27,9 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 
 // Validate the packfile and extract its contents
 fn validate_packfile(pack_data: &[u8]) -> io::Result<()> {
+    // Debug: Log the first few bytes of the packfile
+    println!("Validating packfile... First 16 bytes: {:?}", &pack_data[..16.min(pack_data.len())]);
+
     // The first 4 bytes should be "PACK"
     if &pack_data[0..4] != b"PACK" {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid packfile header"));
