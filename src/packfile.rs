@@ -173,34 +173,30 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
     let mut size = 0;
     let mut shift = 0;
 
-    // Ensure there's at least one byte in the data
     if data.is_empty() {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
     }
 
-    // Parse the type (first 3 bits) and size (remaining bits)
+    // Parse the first byte: object type and size part
     let mut c = data[header_len];
-    size = (c & 0b1111) as usize; // Size in the last 4 bits
+    let obj_type = (c >> 4) & 0x7; // Extract object type (commit, tree, etc.)
+    size = (c & 0x0F) as usize; // Size in the last 4 bits
     header_len += 1;
 
-    // Check if the size spans multiple bytes (when the MSB is set)
+    // Parse the remaining size if necessary (varint encoding)
     while c & 0x80 != 0 {
-        // Ensure we have enough bytes to continue reading
         if header_len >= data.len() {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
         }
 
-        // Read the next byte
         c = data[header_len];
-        size |= ((c & 0x7f) as usize) << shift;
+        size |= ((c & 0x7F) as usize) << shift;
         shift += 7;
         header_len += 1;
     }
 
-    // Log the parsed object header
-    println!("Parsed object header: size = {}, header_len = {}", size, header_len);
+    println!("Object type: {}, size: {}, header_len: {}", obj_type, size, header_len);
 
-    // Return the parsed size and header length
     Ok((size, header_len))
 }
 
