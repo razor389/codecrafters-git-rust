@@ -714,8 +714,8 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
                         .take_while(|part| !part.starts_with("symref="))
                         .collect();
                     capabilities = Some(caps.join(" "));
-                    println!("capabilities: {:?}", capabilities.clone());
                     
+
                     // Now check for the symbolic HEAD ref (symref=HEAD)
                     if let Some(symref_part) = rest.split("symref=HEAD:").nth(1) {
                         let head_symref = symref_part.split_whitespace().next().unwrap_or("");
@@ -734,6 +734,7 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
             }
         }
     }
+    println!("capabilities: {:?}", capabilities.clone());
 
     // Return the branch SHA and capabilities if found
     if let Some(sha) = branch_sha {
