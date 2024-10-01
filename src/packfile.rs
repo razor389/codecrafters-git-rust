@@ -67,6 +67,7 @@ fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
         }
     }
 }
+
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
 
@@ -102,20 +103,18 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         offset += obj_header_len;
 
-        // Log if we encounter a delta object
+        // Handle delta objects separately
         if obj_type == 6 || obj_type == 7 {
             println!(
                 "Delta object detected at offset {}: type = {}, size = {}",
                 obj_offset, obj_type, obj_size
             );
-            // For now, return an error until you handle delta-encoded objects
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Delta objects (OFS_DELTA or REF_DELTA) need special handling"
-            ));
+            // Skip delta objects for now
+            offset += obj_size;
+            continue;
         }
 
-        // Check if we have enough data for this object
+        // Ensure we don't go out of bounds
         if offset + obj_size > packfile_data_end {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
@@ -126,7 +125,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             ));
         }
 
-        // Get the compressed data slice
+        // Extract compressed data
         let compressed_data = &pack_data[offset..offset + obj_size];
         println!(
             "Compressed data (first 200 bytes) at offset {}: {:?}",
@@ -134,7 +133,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             &compressed_data[..200.min(compressed_data.len())]
         );
 
-        // Decompress the object data
+        // Attempt to decompress the object
         match decompress_object(compressed_data) {
             Ok(decompressed_data) => {
                 println!(
@@ -156,6 +155,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             }
         };
 
+        // Move to the next object
         offset += obj_size;
         println!("Moved to next object, new offset: {}", offset);
     }
@@ -163,12 +163,13 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     // Validate the packfile checksum
     validate_packfile_checksum(&pack_data)?;
 
-    // Write the index file
+    // Write the index file based on object offsets and SHA-1 hashes
     write_packfile_index(objects, output_dir)?;
 
     println!("Packfile indexed successfully.");
     Ok(())
 }
+
 
 // Function to validate the SHA-1 checksum at the end of the packfile
 fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
