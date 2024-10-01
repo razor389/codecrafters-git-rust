@@ -520,87 +520,66 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     Ok(())
 }
 
+// Send a POST request to fetch the packfile for the HEAD commit
 async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<u8>, io::Error> {
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    // Correctly calculate the length of the want line
+    // Step 1: Create the 'want' line with SHA-1 and capabilities
     let want_line = format!(
         "want {} multi_ack_detailed side-band ofs-delta shallow no-progress include-tag\n",
         head_commit_sha
     );
-    let want_length = format!("{:04x}", want_line.len() + 4); // length of the line plus 4-byte length field
+    
+    // Step 2: Calculate the length of the want line including 4 bytes for the length itself
+    let want_length = format!("{:04x}", want_line.len() + 4);
 
-    // Build the request body with the "want" command followed by the flush pkt-line (0000)
-    let request_body = format!("{}{}0000", want_length, want_line);
-    println!("Request body:\n{}", request_body);
+    // Step 3: Create the full request body with length-prefixed want line and flush pkt-line
+    let request_body = format!(
+        "{}{}0000",  // Flush pkt-line at the end (0000)
+        want_length, want_line
+    );
 
-    // Create the HTTP client
+    println!("Request body:\n{}", request_body); // Debugging
+
+    // Step 4: Send the POST request
     let client = reqwest::Client::new();
-
-    // Send the request with the request body to fetch the packfile
     let response = client
         .post(&upload_pack_url)
         .header("Content-Type", "application/x-git-upload-pack-request")
-        .body(request_body)
+        .body(Body::from(request_body))
         .send()
         .await
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err)))?;
+        .map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err))
+        })?;
 
-    let status = response.status();
-
-    // Check if the response was successful
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_else(|_| "No response body".to_string());
+    // Step 5: Check if the response is successful
+    if !response.status().is_success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("Failed to fetch packfile: HTTP status {}. Response body: {}", status, body),
+            format!("Failed to fetch packfile: HTTP status {}", response.status()),
         ));
     }
 
-    // Handle the response: Packfile data is transmitted in a "side-band" format (streamed)
-    let mut pack_data = Vec::new();
-
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|err| {
-            io::Error::new(io::ErrorKind::Other, format!("Error reading packfile stream: {}", err))
-        })?;
-
-        // Handle side-band: Git sends packfile data on channel 1
-        // The side-band protocol sends the packfile over channel 1 (progress messages on channel 2)
-        if chunk.len() > 0 {
-            let band = chunk[0];
-            let data = &chunk[1..];
-            
-            match band {
-                1 => {
-                    // This is the packfile data channel
-                    pack_data.extend_from_slice(data);
-                }
-                2 => {
-                    // This is the progress channel
-                    println!("Progress: {}", String::from_utf8_lossy(data));
-                }
-                3 => {
-                    // This is the error channel
-                    return Err(io::Error::new(io::ErrorKind::Other, format!("Error from server: {}", String::from_utf8_lossy(data))));
-                }
-                _ => {
-                    return Err(io::Error::new(io::ErrorKind::Other, format!("Unknown side-band channel: {}", band)));
-                }
-            }
-        }
-    }
-
-    if pack_data.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::Other, "Downloaded packfile is empty"));
-    }
+    // Step 6: Read the response body (packfile data)
+    let pack_data = response.bytes().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
+    })?;
 
     println!("Downloaded packfile size: {} bytes", pack_data.len());
-    Ok(pack_data)
-}
 
+    // Step 7: Check if the downloaded packfile is empty
+    if pack_data.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Downloaded packfile is empty".to_string(),
+        ));
+    }
+
+    // Step 8: Return the packfile data
+    Ok(pack_data.to_vec())
+}
 
 // Store the downloaded packfile in the .git/objects/pack directory
 fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
