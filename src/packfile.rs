@@ -48,25 +48,13 @@ fn validate_packfile(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-// Decompress an individual object using zlib
-fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
+fn decompress_object_with_consumed(compressed_data: &[u8]) -> io::Result<(Vec<u8>, usize)> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
-
-    match decoder.read_to_end(&mut decompressed_data) {
-        Ok(_) => {
-            // Print the first 100 bytes of the decompressed data for debugging
-            println!("Decompressed object successfully: size = {}", decompressed_data.len());
-            println!("Decompressed data (first 200 bytes): {:?}", &decompressed_data[..200.min(decompressed_data.len())]);
-
-            Ok(decompressed_data)
-        },
-        Err(err) => {
-            println!("Error decompressing object: {:?}", err);
-            Err(io::Error::new(io::ErrorKind::InvalidInput, format!("corrupt deflate stream: {:?}", err)))
-        }
-    }
+    let bytes_consumed = decoder.read_to_end(&mut decompressed_data)?;
+    Ok((decompressed_data, bytes_consumed))
 }
+
 
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
@@ -115,37 +103,38 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         }
 
         // Ensure we don't go out of bounds
-        if offset + obj_size > packfile_data_end {
+        if offset >= packfile_data_end {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 format!(
-                    "Not enough data to read object at offset {}. Required: {}, Remaining: {}",
-                    offset, obj_size, packfile_data_end - offset
+                    "Not enough data to read object at offset {}. Remaining: {}",
+                    offset, packfile_data_end - offset
                 ),
             ));
         }
 
-        // Extract compressed data
-        let compressed_data = &pack_data[offset..packfile_data_end]; // Packfile end ensures we stay within bounds
+        // Extract compressed data, but limit to packfile end
+        let compressed_data = &pack_data[offset..packfile_data_end];
         println!(
             "Compressed data (first 200 bytes) at offset {}: {:?}",
             offset,
             &compressed_data[..200.min(compressed_data.len())]
         );
 
-        // Decompress the object and update offset based on compressed size
-        match decompress_object(compressed_data) {
-            Ok(decompressed_data) => {
+        // Decompress the object and calculate the actual compressed size
+        let decompressed_result = decompress_object_with_consumed(compressed_data);
+        match decompressed_result {
+            Ok((decompressed_data, bytes_consumed)) => {
                 println!(
-                    "Decompressed object at offset {}: decompressed size = {}, compressed size (approx) = {}",
+                    "Decompressed object at offset {}: decompressed size = {}, compressed size = {}",
                     obj_offset,
                     decompressed_data.len(),
-                    obj_size // Use obj_size as the estimated compressed size
+                    bytes_consumed
                 );
                 objects.push((obj_offset, decompressed_data));
 
-                // Update offset by the compressed size, as that's the real size of data read
-                offset += obj_size; // obj_size is the compressed size
+                // Update offset by the actual number of bytes consumed from the compressed data
+                offset += bytes_consumed;
             },
             Err(err) => {
                 println!(
@@ -171,8 +160,6 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     println!("Packfile indexed successfully.");
     Ok(())
 }
-
-
 
 // Function to validate the SHA-1 checksum at the end of the packfile
 fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
