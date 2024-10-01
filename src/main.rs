@@ -7,7 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
-use futures_util::StreamExt;
 use reqwest::Body;
 use sha1::{Sha1, Digest};
 use git2::{Repository, Oid};
@@ -689,19 +688,21 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
     let mut capabilities: Option<String> = None;
 
     for line in refs_str.lines() {
-        // Skip pkt-line flush marker and length prefix (first 8 characters)
-        if line.len() <= 8 {
-            continue; // Ignore lines that are too short
+        // Skip service announcements and lines that are too short
+        if line.starts_with("# service=git-upload-pack") || line.len() <= 8 {
+            continue; // Ignore service announcement and lines that don't have the expected length
         }
-        let line_content = &line[8..]; // Skip the first 8 characters (0000 and length prefix)
 
-        // Extract the SHA-1 (40 characters after the first 8 characters)
-        if line_content.len() >= 40 {
-            let (sha, rest) = line_content.split_at(40); // SHA is always 40 characters
+        // Skip the first 8 characters (length prefix)
+        let line_content = &line[8..]; 
+
+        // Extract the SHA-1 (first 40 characters after the first 8 characters)
+        if line_content.len() > 40 {
+            let (sha, rest) = line_content.split_at(40);  // Extract the SHA
             let sha = sha.trim();
             let rest = rest.trim();
 
-            // Now split the rest into ref name and capabilities
+            // Split the remaining part into ref name and capabilities
             let mut ref_parts = rest.split_whitespace();
 
             if let Some(ref_name) = ref_parts.next() {
