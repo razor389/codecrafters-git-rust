@@ -707,16 +707,40 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
 
         // Start processing refs after the service announcement
         if processing_refs {
-            // Handle symbolic HEAD (e.g., symref=HEAD:refs/heads/master)
+            // The line contains SHA-1, ref, and possibly capabilities
             if line_content.contains("symref=HEAD") {
-                if let Some(symref_part) = line_content.split("symref=HEAD:").nth(1) {
-                    let symref = symref_part.split_whitespace().next().unwrap_or("").trim();
-                    println!("Found symbolic HEAD ref pointing to: {}", symref);
-                    head_ref = Some(symref.to_string());
+                // This line contains both the HEAD and capabilities
+                println!("Found line with symref=HEAD and capabilities");
+
+                // Split the line by NUL (`\0`) to separate ref/capabilities from SHA-1
+                let parts: Vec<&str> = line_content.split('\0').collect();
+                let ref_info = parts[0]; // The part before the capabilities
+
+                // Split ref_info to extract SHA and ref
+                if ref_info.len() > 40 {
+                    let (sha, ref_name_with_symref) = ref_info.split_at(40); // SHA is the first 40 chars
+                    let sha = sha.trim();
+                    let rest = ref_name_with_symref.trim();
+
+                    // Check if the ref contains "symref=HEAD"
+                    if rest.contains("symref=HEAD") {
+                        let symref_part = rest.split("symref=HEAD:").nth(1).unwrap_or("").trim();
+                        let head_symref = symref_part.split_whitespace().next().unwrap_or("");
+                        println!("Found symbolic HEAD ref pointing to: {}", head_symref);
+                        head_ref = Some(head_symref.to_string());
+
+                        // Now extract capabilities from the parts after '\0'
+                        if parts.len() > 1 {
+                            capabilities = Some(parts[1].trim().to_string());
+                            println!("Found capabilities: {}", capabilities.as_ref().unwrap());
+                        }
+
+                        branch_sha = Some(sha.to_string());
+                    }
                 }
             } else {
-                // Extract SHA (40 characters), ref, and capabilities
-                let (sha, rest) = line_content.split_at(40);
+                // This line might not contain the symbolic HEAD, just normal refs
+                let (sha, rest) = line_content.split_at(40); // SHA is the first 40 chars
                 let rest = rest.trim();
 
                 // Split the rest of the line into ref_name and capabilities
@@ -725,19 +749,19 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
                 if let Some(ref_name) = ref_parts.next() {
                     println!("Found ref: {}, SHA: {}", ref_name, sha);
 
-                    // Match the ref_name with the head_ref (e.g., refs/heads/master)
+                    // Collect all the remaining parts as capabilities
+                    let caps: Vec<&str> = ref_parts.collect();
+                    if !caps.is_empty() && capabilities.is_none() {
+                        capabilities = Some(caps.join(" "));
+                        println!("Found capabilities: {}", capabilities.as_ref().unwrap());
+                    }
+
+                    // Match this ref_name with the previously discovered HEAD ref
                     if let Some(ref head_ref_val) = head_ref {
                         if ref_name == head_ref_val && sha.len() == 40 {
                             println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
                             branch_sha = Some(sha.to_string());
                         }
-                    }
-
-                    // Collect all the remaining parts as capabilities
-                    let caps: Vec<&str> = ref_parts.collect();
-                    if !caps.is_empty() {
-                        capabilities = Some(caps.join(" "));
-                        println!("Found capabilities: {}", capabilities.as_ref().unwrap());
                     }
                 }
             }
