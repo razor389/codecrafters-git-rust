@@ -8,6 +8,7 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use sha1::{Sha1, Digest};
+use git2::{Repository, Oid};
 //use reqwest::Url;
 use tokio;
 
@@ -477,35 +478,103 @@ fn create_commit(tree_sha: &str, message: &str, parent_sha: Option<&str>) -> io:
 }
 
 // Clone the repository from a remote HTTP repository
+// Clone the repository from a remote HTTP repository
 async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     // Check if the target directory already exists
     if Path::new(target_dir).exists() {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, "Target directory already exists"));
     }
 
-    // Create the target directory
-    fs::create_dir(target_dir)?;
+    // Step 1: Initialize the .git directory
+    fs::create_dir_all(format!("{}/.git/objects", target_dir))?;
+    fs::create_dir_all(format!("{}/.git/refs", target_dir))?;
+    fs::write(format!("{}/.git/HEAD", target_dir), "ref: refs/heads/master\n")?;
 
-    // Step 1: Discover the repository by fetching info/refs
+    // Step 2: Fetch the repository's refs (info/refs)
     let repo_url = format!("{}/info/refs?service=git-upload-pack", remote_repo);
     let refs_data = match fetch_refs(&repo_url).await {
         Ok(data) => data,
         Err(err) => return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err))),
     };
 
-    // Parse refs and get the HEAD commit SHA
+    // Step 3: Parse refs and get the HEAD commit SHA
     let head_commit_sha = match parse_refs(&refs_data) {
         Some(sha) => sha,
         None => return Err(io::Error::new(io::ErrorKind::NotFound, "HEAD commit not found")),
     };
 
-    // Step 2: Download the objects
-    let git_objects_url = format!("{}/objects", remote_repo);
-    fetch_and_store_objects(&git_objects_url, &head_commit_sha, target_dir).await?;
+    // Step 4: Fetch the list of packfiles
+    let pack_list_url = format!("{}/objects/info/packs", remote_repo);
+    let pack_list = fetch_pack_list(&pack_list_url).await?;
 
-    println!("Repository cloned from {} to {}", remote_repo, target_dir);
+    // Step 5: Download the packfiles and store them in the .git directory
+    let repo_objects_url = format!("{}/objects", remote_repo);
+    download_packfiles(&repo_objects_url, &pack_list, target_dir).await?;
+
+    // Step 6: Verify repository and objects
+    verify_repository_and_objects(target_dir, &head_commit_sha)?;
+
+    // Step 7: Write the working directory files (checkout the HEAD commit)
+    checkout_head_commit(target_dir, &head_commit_sha)?;
+
+    println!("Repository cloned successfully to {}", target_dir);
     Ok(())
 }
+
+// Check out the HEAD commit and write files to the working directory
+fn checkout_head_commit(target_dir: &str, head_commit_sha: &str) -> io::Result<()> {
+    let repo = Repository::open(target_dir).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to open repository: {}", err))
+    })?;
+
+    // Convert the SHA-1 string to an Oid
+    let oid = Oid::from_str(head_commit_sha).map_err(|err| {
+        io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid commit SHA: {}", err))
+    })?;
+
+    // Find the commit object by OID
+    let commit = repo.find_commit(oid).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to find commit: {}", err))
+    })?;
+
+    // Get the tree (directory structure) associated with the commit
+    let tree = commit.tree().map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to find tree: {}", err))
+    })?;
+
+    // Perform the checkout to update the working directory
+    repo.checkout_tree(tree.as_object(), None).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to checkout tree: {}", err))
+    })?;
+
+    // Update HEAD to point to the checked-out commit
+    repo.set_head_detached(oid).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to set HEAD: {}", err))
+    })?;
+
+    println!("Checked out HEAD commit: {}", head_commit_sha);
+    Ok(())
+}
+
+// Verifies the repository after packfiles are downloaded
+fn verify_repository_and_objects(target_dir: &str, head_commit_sha: &str) -> io::Result<()> {
+    let repo = Repository::open(target_dir).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to open repository: {}", err))
+    })?;
+
+    // Check if the head commit exists in the repository
+    let oid = Oid::from_str(head_commit_sha).map_err(|err| {
+        io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid commit SHA: {}", err))
+    })?;
+
+    let _commit = repo.find_commit(oid).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to find commit: {}", err))
+    })?;
+
+    println!("Verified repository and found HEAD commit: {}", head_commit_sha);
+    Ok(())
+}
+
 
 // Fetch the refs from the remote repository
 async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
@@ -519,11 +588,8 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
     println!("HTTP Response: {}", status); // Debug: print the HTTP status
 
     if !status.is_success() {
-        // Consume the response to get the body
         let body = response.text().await.unwrap_or_else(|_| "Unable to fetch response body".to_string());
         eprintln!("Error fetching refs: {} - {}", status, body);
-
-        // Return an `io::Error` with the HTTP status
         return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: HTTP status {}", status)));
     }
 
@@ -531,13 +597,12 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
         io::Error::new(io::ErrorKind::Other, format!("Failed to read response bytes: {}", err))
     })?;
 
-    // Debug: Print the first few bytes of the response to understand the structure
     println!("Received refs data (first 100 bytes): {:?}", &bytes[..100.min(bytes.len())]);
 
     Ok(bytes.to_vec())
 }
 
-// Function to parse the refs response and extract HEAD commit SHA
+// Parse the refs response and extract HEAD commit SHA
 fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let refs_str = String::from_utf8_lossy(refs_data);
     
@@ -558,48 +623,71 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     None
 }
 
-async fn fetch_and_store_objects(repo_url: &str, sha: &str, target_dir: &str) -> io::Result<()> {
-    let object_dir = format!("{}/.git/objects", target_dir);
-    let sha_prefix = &sha[0..2];
-    let sha_suffix = &sha[2..];
+// Fetch the list of packfiles
+async fn fetch_pack_list(pack_list_url: &str) -> io::Result<String> {
+    println!("Fetching pack list from: {}", pack_list_url);
 
-    let object_url = format!("{}/{}/{}", repo_url, sha_prefix, sha_suffix);
-    println!("Fetching object from: {}", object_url); // Debug log to print the URL
-
-    let response = reqwest::get(&object_url).await.map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to download object: {}", err))
+    let response = reqwest::get(pack_list_url).await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to fetch pack list: {}", err))
     })?;
 
-    // Log the response status
-    println!("HTTP Response: {}", response.status());
-
     if !response.status().is_success() {
-        // Print out the failed response for further debugging
-        let status_code = response.status();
-        let response_body = response.text().await.unwrap_or_else(|_| "Unable to read response body".to_string());
-        println!("Failed to fetch object. Status: {}, Body: {}", status_code, response_body);
-        
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("Failed to fetch object: HTTP status {}", status_code),
+            format!("Failed to fetch pack list: HTTP status {}", response.status())
         ));
     }
 
-    let object_dir_path = Path::new(&object_dir).join(sha_prefix);
-    fs::create_dir_all(&object_dir_path)?;
-
-    let object_path = object_dir_path.join(sha_suffix);
-    let mut object_file = File::create(object_path)?;
-    let compressed_data = response.bytes().await.map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to read object data: {}", err))
+    let pack_list = response.text().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read pack list: {}", err))
     })?;
 
-    let mut decoder = ZlibDecoder::new(&compressed_data[..]);
-    let mut decompressed_data = Vec::new();
-    decoder.read_to_end(&mut decompressed_data).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to decompress object: {}", err))
-    })?;
+    println!("Received pack list: {}", pack_list);
+    Ok(pack_list)
+}
 
-    object_file.write_all(&decompressed_data)?;
+// Download packfiles from the pack list and store them locally
+async fn download_packfiles(repo_url: &str, pack_list: &str, target_dir: &str) -> io::Result<()> {
+    for line in pack_list.lines() {
+        if line.starts_with("P ") {
+            let pack_name = line[2..].trim();
+            let pack_url = format!("{}/pack/{}", repo_url, pack_name);
+            let idx_url = format!("{}/pack/{}.idx", repo_url, &pack_name[..pack_name.len() - 5]); // .pack -> .idx
+
+            println!("Downloading packfile: {}", pack_url);
+
+            // Fetch the packfile
+            let pack_response = reqwest::get(&pack_url).await.map_err(|err| {
+                io::Error::new(io::ErrorKind::Other, format!("Failed to download packfile: {}", err))
+            })?;
+
+            // Fetch the index file
+            let idx_response = reqwest::get(&idx_url).await.map_err(|err| {
+                io::Error::new(io::ErrorKind::Other, format!("Failed to download idx file: {}", err))
+            })?;
+
+            // Ensure both requests were successful
+            if !pack_response.status().is_success() || !idx_response.status().is_success() {
+                return Err(io::Error::new(io::ErrorKind::Other, "Failed to download pack or idx file"));
+            }
+
+            // Save the .pack file
+            let pack_path = format!("{}/.git/objects/pack/{}", target_dir, pack_name);
+            let pack_bytes = pack_response.bytes().await.map_err(|err| {
+                io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile: {}", err))
+            })?;
+            fs::write(&pack_path, &pack_bytes)?;
+
+            // Save the .idx file
+            let idx_path = format!("{}/.git/objects/pack/{}.idx", target_dir, &pack_name[..pack_name.len() - 5]);
+            let idx_bytes = idx_response.bytes().await.map_err(|err| {
+                io::Error::new(io::ErrorKind::Other, format!("Failed to read idx file: {}", err))
+            })?;
+            fs::write(&idx_path, &idx_bytes)?;
+
+            println!("Pack and idx files downloaded and stored.");
+        }
+    }
+
     Ok(())
 }
