@@ -63,17 +63,37 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     let mut offset = 12; // Skip the 12-byte header
     let mut objects = Vec::new();
 
-    // Parse the objects in the packfile
+    println!("Starting to parse objects in the packfile...");
+
     while offset < pack_data.len() - 20 { // Leave out the final SHA-1 checksum
+        // Ensure we don't go out of bounds
+        if offset >= pack_data.len() {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Reached unexpected end of packfile"));
+        }
+
         let obj_offset = offset;
 
         // Parse the object header (size and type)
-        let (obj_size, obj_header_len) = parse_object_header(&pack_data[offset..])?;
+        let (obj_size, obj_header_len) = match parse_object_header(&pack_data[offset..]) {
+            Ok((size, header_len)) => (size, header_len),
+            Err(err) => {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse object header: {}", err)));
+            }
+        };
+
+        // Check if we have enough bytes remaining to read the object
+        if offset + obj_header_len + obj_size > pack_data.len() {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Not enough bytes to read object data"));
+        }
+
+        println!("Parsed object at offset {}: size = {}, header_len = {}", obj_offset, obj_size, obj_header_len);
+
         offset += obj_header_len;
 
         // Decompress the object data
         let compressed_data = &pack_data[offset..offset + obj_size];
         let decompressed_data = decompress_object(compressed_data)?;
+        println!("Decompressed object at offset {}: size = {}", obj_offset, decompressed_data.len());
 
         // Store the object offset and its decompressed data
         objects.push((obj_offset, decompressed_data));
@@ -83,11 +103,13 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     }
 
     // Write the index file based on object offsets and SHA-1 hashes
+    println!("Finished parsing objects. Writing the index file...");
     write_packfile_index(objects, output_dir)?;
 
     println!("Packfile indexed successfully.");
     Ok(())
 }
+
 
 // Parse an individual object's header (returns size and header length)
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
