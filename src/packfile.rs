@@ -104,9 +104,18 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         offset += obj_header_len;
 
-        // Decompress the object data
+        // Debug: Print the compressed data before decompressing
         let compressed_data = &pack_data[offset..offset + obj_size];
-        let decompressed_data = decompress_object(compressed_data)?;
+        println!("Compressed data (first 20 bytes) at offset {}: {:?}", offset, &compressed_data[..20.min(compressed_data.len())]);
+
+        // Decompress the object data
+        let decompressed_data = match decompress_object(compressed_data) {
+            Ok(data) => data,
+            Err(err) => {
+                println!("Error decompressing object at offset {}: {:?}", offset, err);
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress object: {:?}", err)));
+            }
+        };
         println!("Decompressed object at offset {}: size = {}", obj_offset, decompressed_data.len());
 
         // Store the object offset and its decompressed data
