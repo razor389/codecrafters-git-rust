@@ -661,7 +661,7 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
             continue;
         }
 
-        // If we find "symref=HEAD" line, extract the HEAD symbolic ref (e.g., refs/heads/master)
+        // Handle the symref for HEAD
         if line.contains("symref=HEAD") {
             if let Some(symref_part) = line.split("symref=HEAD:").nth(1) {
                 // Extract the symbolic ref that HEAD points to
@@ -675,11 +675,6 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
             if parts.len() > 1 {
                 let sha = parts[0];
                 let ref_name = parts[1];
-
-                // Skip lines where SHA doesn't have 40 characters
-                if sha.len() != 40 {
-                    continue;
-                }
 
                 // Debug: Print the extracted ref and SHA
                 println!("Found ref: {}, SHA: {}", ref_name, sha);
