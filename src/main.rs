@@ -534,12 +534,25 @@ async fn fetch_and_store_objects(repo_url: &str, sha: &str, target_dir: &str) ->
     let sha_suffix = &sha[2..];
 
     let object_url = format!("{}/{}/{}", repo_url, sha_prefix, sha_suffix);
+    println!("Fetching object from: {}", object_url); // Debug log to print the URL
+
     let response = reqwest::get(&object_url).await.map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("Failed to download object: {}", err))
     })?;
 
+    // Log the response status
+    println!("HTTP Response: {}", response.status());
+
     if !response.status().is_success() {
-        return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch object: HTTP status {}", response.status())));
+        // Print out the failed response for further debugging
+        let status_code = response.status();
+        let response_body = response.text().await.unwrap_or_else(|_| "Unable to read response body".to_string());
+        println!("Failed to fetch object. Status: {}, Body: {}", status_code, response_body);
+        
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to fetch object: HTTP status {}", status_code),
+        ));
     }
 
     let object_dir_path = Path::new(&object_dir).join(sha_prefix);
@@ -551,7 +564,6 @@ async fn fetch_and_store_objects(repo_url: &str, sha: &str, target_dir: &str) ->
         io::Error::new(io::ErrorKind::Other, format!("Failed to read object data: {}", err))
     })?;
 
-    // Use a byte slice `&[u8]` which implements `Read` for the ZlibDecoder
     let mut decoder = ZlibDecoder::new(&compressed_data[..]);
     let mut decompressed_data = Vec::new();
     decoder.read_to_end(&mut decompressed_data).map_err(|err| {
