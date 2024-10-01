@@ -88,20 +88,20 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             }
         };
 
-        offset += obj_header_len; // Move past the header
+        offset += obj_header_len;
 
         // Ensure we don't go out of bounds
-        if offset >= packfile_data_end {
+        if offset + obj_size > packfile_data_end {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
                 format!(
-                    "Not enough data to read object at offset {}. Remaining: {}",
-                    offset, packfile_data_end - offset
+                    "Not enough data to read object at offset {}. Required: {}, Remaining: {}",
+                    offset, obj_size, packfile_data_end - offset
                 ),
             ));
         }
 
-        // Extract compressed data, but limit to packfile end
+        // Extract compressed data
         let compressed_data = &pack_data[offset..packfile_data_end];
         println!(
             "Compressed data (first 200 bytes) at offset {}: {:?}",
@@ -109,20 +109,17 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             &compressed_data[..200.min(compressed_data.len())]
         );
 
-        // Attempt to decompress the object and get bytes consumed
-        let decompressed_result = decompress_object_with_consumed(compressed_data);
-        match decompressed_result {
+        // Attempt to decompress the object and track bytes consumed
+        match decompress_object_with_consumed(compressed_data) {
             Ok((decompressed_data, bytes_consumed)) => {
                 println!(
-                    "Decompressed object at offset {}: decompressed size = {}, compressed size = {}",
+                    "Decompressed object at offset {}: decompressed size = {}, bytes consumed = {}",
                     obj_offset,
                     decompressed_data.len(),
                     bytes_consumed
                 );
                 objects.push((obj_offset, decompressed_data));
-
-                // Update offset by the actual number of bytes consumed from the compressed data
-                offset += bytes_consumed;
+                offset += bytes_consumed; // Adjust the offset by the consumed bytes
             },
             Err(err) => {
                 println!(
