@@ -661,7 +661,7 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
             continue;
         }
 
-        // Handle the symref for HEAD
+        // Handle the symref for HEAD (e.g., symref=HEAD:refs/heads/master)
         if line.contains("symref=HEAD") {
             if let Some(symref_part) = line.split("symref=HEAD:").nth(1) {
                 // Extract the symbolic ref that HEAD points to
