@@ -656,8 +656,10 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
         if line.contains("HEAD") {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() > 1 {
-                println!("Found HEAD ref: {}", parts[0]);
-                return Some(parts[0].to_string());
+                // Ensure the extracted SHA is 40 characters long (a valid SHA-1 hash)
+                let sha = parts[0].trim();
+                println!("Found HEAD ref: {} (length: {})", sha, sha.len());
+                return Some(sha.to_string());
             }
         }
     }
