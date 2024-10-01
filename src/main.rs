@@ -524,17 +524,15 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    // Capabilities to be sent in the request
-    let capabilities = "multi_ack_detailed side-band ofs-delta shallow no-progress include-tag";
-
-    // Construct the "want" command
-    let want_command = format!("want {} {}\n", head_commit_sha, capabilities);
-
-    // Calculate the length of the "want" pkt-line
-    let want_length = format!("{:04x}", want_command.len() + 4); // 4 bytes for the length field itself
+    // Correctly calculate the length of the want line
+    let want_line = format!(
+        "want {} multi_ack_detailed side-band ofs-delta shallow no-progress include-tag\n",
+        head_commit_sha
+    );
+    let want_length = format!("{:04x}", want_line.len() + 4); // length of the line plus 4-byte length field
 
     // Build the request body with the "want" command followed by the flush pkt-line (0000)
-    let request_body = format!("{}{}0000", want_length, want_command);
+    let request_body = format!("{}{}0000", want_length, want_line);
 
     println!("Request body:\n{}", request_body);
 
