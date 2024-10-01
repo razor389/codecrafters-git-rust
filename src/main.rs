@@ -525,7 +525,15 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    let request_body = format!("0032want {}\n0009done\n", head_commit_sha);
+    // Git capabilities required by the server
+    let capabilities = "multi_ack_detailed side-band ofs-delta shallow no-progress include-tag";
+
+    // Format the request body for the `git-upload-pack` request.
+    let request_body = format!(
+        "0032want {} {}\n0009done\n",  // 0032 = length of the "want" command including capabilities
+        head_commit_sha, capabilities
+    );
+
     println!("Request body:\n{}", request_body);  // Debug: Print the request body
 
     let client = reqwest::Client::new();
