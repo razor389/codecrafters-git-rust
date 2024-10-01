@@ -657,8 +657,8 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let mut processing_refs = false; // Set to true when we start processing refs
 
     for line in refs_str.lines() {
-        // Skip empty lines and lines with '0000' (pkt-line flush marker)
-        if line.starts_with("0000") {
+        // Skip lines that are only "0000" (pkt-line flush marker)
+        if line == "0000" {
             continue;
         }
 
