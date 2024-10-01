@@ -55,7 +55,6 @@ fn decompress_object_with_consumed(compressed_data: &[u8]) -> io::Result<(Vec<u8
     Ok((decompressed_data, bytes_consumed))
 }
 
-
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
 
@@ -91,17 +90,6 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         offset += obj_header_len; // Move past the header
 
-        // Handle delta objects (if any)
-        if obj_type == 6 || obj_type == 7 {
-            println!(
-                "Delta object detected at offset {}: type = {}, size = {}",
-                obj_offset, obj_type, obj_size
-            );
-            // Skip delta objects for now
-            offset += obj_size;
-            continue;
-        }
-
         // Ensure we don't go out of bounds
         if offset >= packfile_data_end {
             return Err(io::Error::new(
@@ -121,7 +109,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             &compressed_data[..200.min(compressed_data.len())]
         );
 
-        // Decompress the object and calculate the actual compressed size
+        // Attempt to decompress the object and get bytes consumed
         let decompressed_result = decompress_object_with_consumed(compressed_data);
         match decompressed_result {
             Ok((decompressed_data, bytes_consumed)) => {
