@@ -523,36 +523,21 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    // Parse the capabilities that the server supports
-    let multi_ack_detailed = capabilities.contains("multi_ack_detailed");
-    let no_done = capabilities.contains("no-done");
-    let allow_reachable_sha1_in_want = capabilities.contains("allow-reachable-sha1-in-want");
-
-    // Step 1: Create the 'want' line with the capabilities that the server supports
-    let mut want_line = format!("want {}", head_commit_sha);
-    if multi_ack_detailed {
-        want_line.push_str(" multi_ack_detailed");
-    }
-    if allow_reachable_sha1_in_want {
-        want_line.push_str(" allow-reachable-sha1-in-want");
-    }
-    want_line.push_str(" ofs-delta side-band shallow no-progress include-tag\n");
+    // Step 1: Create the 'want' line and directly add the capabilities from the parse_refs result
+    let want_line = format!("want {} {}\n", head_commit_sha, capabilities);
 
     // Step 2: Calculate the length of the want line including the 4-byte length prefix
     let want_length = format!("{:04x}", want_line.len() + 4);
 
-    // Step 3: Construct the request body
+    // Step 3: Construct the request body (pkt-line format)
     let mut request_body = format!("{}{}0000", want_length, want_line);
 
-    // Step 4: If applicable, send 'have' lines (for objects the client already has)
-    // In a simple case, we can skip sending 'have' lines.
+    println!("Constructed request body:\n{}", request_body); // Debugging
 
-    // Step 5: Only send a 'done' line if the server does not use 'no-done'
-    if !no_done {
-        request_body.push_str("done\n");
-    }
+    // Step 4: Send a 'done' line to indicate the end of negotiation
+    request_body.push_str("0009done\n");
 
-    // Step 6: Send the POST request to fetch the packfile
+    // Step 5: Send the POST request to fetch the packfile
     let client = reqwest::Client::new();
     let response = client
         .post(&upload_pack_url)
@@ -564,7 +549,7 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
             io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err))
         })?;
 
-    // Step 7: Check if the response is successful
+    // Step 6: Check if the response is successful
     if !response.status().is_success() {
         return Err(io::Error::new(
             io::ErrorKind::Other,
@@ -572,14 +557,14 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
         ));
     }
 
-    // Step 8: Read the response body (packfile data)
+    // Step 7: Read the response body (packfile data)
     let pack_data = response.bytes().await.map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
     })?;
 
     println!("Downloaded packfile size: {} bytes", pack_data.len());
 
-    // Step 9: Return the packfile data
+    // Step 8: Return the packfile data
     Ok(pack_data.to_vec())
 }
 
