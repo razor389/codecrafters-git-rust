@@ -118,6 +118,15 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                     decompressed_data.len(),
                     bytes_consumed
                 );
+                // Print some parts of the data to inspect
+                println!(
+                    "First 20 bytes of decompressed data: {:?}",
+                    &decompressed_data[..20.min(decompressed_data.len())]
+                );
+                println!(
+                    "First 20 bytes of compressed data: {:?}",
+                    &compressed_data[..20.min(compressed_data.len())]
+                );
                 objects.push((obj_offset, decompressed_data));
                 offset += bytes_consumed; // Adjust the offset by the consumed bytes
             },
