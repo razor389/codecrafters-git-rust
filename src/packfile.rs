@@ -92,11 +92,15 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         // Check if we have enough bytes remaining to read the object
         if offset + obj_header_len + obj_size > packfile_data_end {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!(
-                "Not enough bytes to read object data (remaining: {}, required: {})",
+                "Not enough bytes to read object data (remaining: {}, required: {}, offset: {}, header_len: {}, obj_size: {})",
                 packfile_data_end - offset,
-                obj_header_len + obj_size
+                obj_header_len + obj_size,
+                offset,
+                obj_header_len,
+                obj_size
             )));
         }
+        
 
         offset += obj_header_len;
 
