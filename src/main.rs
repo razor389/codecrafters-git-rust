@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::fs::File;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
@@ -569,16 +570,37 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
 }
 
 
-// Store the downloaded packfile in the .git/objects/pack directory
 fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
     let pack_dir = format!("{}/.git/objects/pack", target_dir);
     fs::create_dir_all(&pack_dir)?;
 
+    // Step 1: Write the packfile to disk
     let pack_file_path = format!("{}/packfile.pack", pack_dir);
     let mut pack_file = fs::File::create(&pack_file_path)?;
     pack_file.write_all(&pack_data)?;
 
     println!("Packfile stored at: {}", pack_file_path);
+
+    // Step 2: Index the packfile using the `git index-pack` command
+    let output = Command::new("git")
+        .arg("index-pack")
+        .arg(pack_file_path)
+        .output()
+        .map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, format!("Failed to run `git index-pack`: {}", err))
+        })?;
+
+    if !output.status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "Failed to index packfile: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        ));
+    }
+
+    println!("Packfile indexed successfully.");
     Ok(())
 }
 
@@ -617,7 +639,6 @@ fn checkout_head_commit(target_dir: &str, head_commit_sha: &str) -> io::Result<(
     Ok(())
 }
 
-// Verifies the repository after packfiles are downloaded
 fn verify_repository_and_objects(target_dir: &str, head_commit_sha: &str) -> io::Result<()> {
     let repo = Repository::open(target_dir).map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("Failed to open repository: {}", err))
@@ -635,6 +656,7 @@ fn verify_repository_and_objects(target_dir: &str, head_commit_sha: &str) -> io:
     println!("Verified repository and found HEAD commit: {}", head_commit_sha);
     Ok(())
 }
+
 
 // Fetch the refs from the remote repository
 async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
