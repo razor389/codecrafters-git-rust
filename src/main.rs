@@ -728,7 +728,7 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
                 if let Some(ref stored_sha) = sha_from_second_line {
                     if stored_sha == sha {
                         println!("SHA matches: {}", sha);
-                        println!("capabilities: {:?}", capabilities);
+                        println!("capability: {:?}", capabilities);
                         // Return the SHA and capabilities
                         return Some((sha.to_string(), capabilities.unwrap_or_default()));
                     } else {
