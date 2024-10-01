@@ -648,30 +648,51 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
 // Parse the refs response and extract the HEAD commit SHA
 fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let refs_str = String::from_utf8_lossy(refs_data);
-
+    
     // Debug: Print the entire refs response for analysis
     println!("Raw refs data: {}", refs_str);
 
+    let mut head_ref: Option<String> = None;
+    let mut branch_sha: Option<String> = None;
+
     for line in refs_str.lines() {
-        // We're looking for the line that contains "HEAD" and "refs/heads/master"
-        if line.contains("HEAD") && line.contains("refs/heads/master") {
+        // Skip lines that start with '0000' or are part of the protocol
+        if line.starts_with("0000") || line.starts_with('#') {
+            continue;
+        }
+
+        // If we find "symref=HEAD" line, extract the HEAD symbolic ref (e.g., refs/heads/master)
+        if line.contains("symref=HEAD") {
+            if let Some(symref_part) = line.split("symref=HEAD:").nth(1) {
+                // Extract the symbolic ref that HEAD points to
+                let symref = symref_part.split_whitespace().next().unwrap_or("").trim();
+                println!("Found symbolic HEAD ref pointing to: {}", symref);
+                head_ref = Some(symref.to_string());
+            }
+        } else {
+            // Extract the actual SHA-1 and refs
             let parts: Vec<&str> = line.split_whitespace().collect();
-            
-            // The first part should be the SHA-1 hash, which needs to be 40 characters long
             if parts.len() > 1 {
                 let sha = parts[0];
+                let ref_name = parts[1];
 
-                // Debug: Print the extracted SHA and its length
-                println!("Extracted HEAD ref candidate: {} (length: {})", sha, sha.len());
+                // Debug: Print the extracted ref and SHA
+                println!("Found ref: {}, SHA: {}", ref_name, sha);
 
-                if sha.len() == 40 {
-                    println!("Found valid HEAD ref: {}", sha);
-                    return Some(sha.to_string());
-                } else {
-                    println!("Invalid HEAD ref: {} (length: {})", sha, sha.len());
+                // Check if this ref matches the symbolic HEAD ref (e.g., refs/heads/master)
+                if let Some(ref head_ref_val) = &head_ref {
+                    if ref_name == head_ref_val && sha.len() == 40 {
+                        println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
+                        branch_sha = Some(sha.to_string());
+                    }
                 }
             }
         }
+    }
+
+    // If we found the branch SHA, return it
+    if let Some(sha) = branch_sha {
+        return Some(sha);
     }
 
     eprintln!("HEAD ref not found.");
