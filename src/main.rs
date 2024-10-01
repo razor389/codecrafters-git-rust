@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use reqwest::Body;
 use sha1::{Sha1, Digest};
 use git2::{Repository, Oid};
 //use reqwest::Url;
@@ -503,13 +504,11 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
         None => return Err(io::Error::new(io::ErrorKind::NotFound, "HEAD commit not found")),
     };
 
-    // Step 4: Fetch the list of packfiles
-    let pack_list_url = format!("{}/objects/info/packs", remote_repo);
-    let pack_list = fetch_pack_list(&pack_list_url).await?;
+    // Step 4: Request the packfile via POST to git-upload-pack
+    let pack_data = fetch_packfile(remote_repo, &head_commit_sha).await?;
 
-    // Step 5: Download the packfiles and store them in the .git directory
-    let repo_objects_url = format!("{}/objects", remote_repo);
-    download_packfiles(&repo_objects_url, &pack_list, target_dir).await?;
+    // Step 5: Store the packfile in the .git directory
+    store_packfile(target_dir, pack_data)?;
 
     // Step 6: Verify repository and objects
     verify_repository_and_objects(target_dir, &head_commit_sha)?;
@@ -518,6 +517,51 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     checkout_head_commit(target_dir, &head_commit_sha)?;
 
     println!("Repository cloned successfully to {}", target_dir);
+    Ok(())
+}
+
+// Send a POST request to fetch the packfile for the HEAD commit
+async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<u8>, io::Error> {
+    let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
+    println!("Requesting packfile from: {}", upload_pack_url);
+
+    let request_body = format!("0032want {}00000009done\n", head_commit_sha); // Simplified request for demo
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(&upload_pack_url)
+        .header("Content-Type", "application/x-git-upload-pack-request")
+        .body(Body::from(request_body))
+        .send()
+        .await
+        .map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err))
+        })?;
+
+    if !response.status().is_success() {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to fetch packfile: HTTP status {}", response.status()),
+        ));
+    }
+
+    let pack_data = response.bytes().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
+    })?;
+
+    Ok(pack_data.to_vec())
+}
+
+// Store the downloaded packfile in the .git/objects/pack directory
+fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
+    let pack_dir = format!("{}/.git/objects/pack", target_dir);
+    fs::create_dir_all(&pack_dir)?;
+
+    let pack_file_path = format!("{}/packfile.pack", pack_dir);
+    let mut pack_file = fs::File::create(&pack_file_path)?;
+    pack_file.write_all(&pack_data)?;
+
+    println!("Packfile stored at: {}", pack_file_path);
     Ok(())
 }
 
@@ -621,73 +665,4 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     
     eprintln!("HEAD ref not found.");
     None
-}
-
-// Fetch the list of packfiles
-async fn fetch_pack_list(pack_list_url: &str) -> io::Result<String> {
-    println!("Fetching pack list from: {}", pack_list_url);
-
-    let response = reqwest::get(pack_list_url).await.map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to fetch pack list: {}", err))
-    })?;
-
-    if !response.status().is_success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Failed to fetch pack list: HTTP status {}", response.status())
-        ));
-    }
-
-    let pack_list = response.text().await.map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to read pack list: {}", err))
-    })?;
-
-    println!("Received pack list: {}", pack_list);
-    Ok(pack_list)
-}
-
-// Download packfiles from the pack list and store them locally
-async fn download_packfiles(repo_url: &str, pack_list: &str, target_dir: &str) -> io::Result<()> {
-    for line in pack_list.lines() {
-        if line.starts_with("P ") {
-            let pack_name = line[2..].trim();
-            let pack_url = format!("{}/pack/{}", repo_url, pack_name);
-            let idx_url = format!("{}/pack/{}.idx", repo_url, &pack_name[..pack_name.len() - 5]); // .pack -> .idx
-
-            println!("Downloading packfile: {}", pack_url);
-
-            // Fetch the packfile
-            let pack_response = reqwest::get(&pack_url).await.map_err(|err| {
-                io::Error::new(io::ErrorKind::Other, format!("Failed to download packfile: {}", err))
-            })?;
-
-            // Fetch the index file
-            let idx_response = reqwest::get(&idx_url).await.map_err(|err| {
-                io::Error::new(io::ErrorKind::Other, format!("Failed to download idx file: {}", err))
-            })?;
-
-            // Ensure both requests were successful
-            if !pack_response.status().is_success() || !idx_response.status().is_success() {
-                return Err(io::Error::new(io::ErrorKind::Other, "Failed to download pack or idx file"));
-            }
-
-            // Save the .pack file
-            let pack_path = format!("{}/.git/objects/pack/{}", target_dir, pack_name);
-            let pack_bytes = pack_response.bytes().await.map_err(|err| {
-                io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile: {}", err))
-            })?;
-            fs::write(&pack_path, &pack_bytes)?;
-
-            // Save the .idx file
-            let idx_path = format!("{}/.git/objects/pack/{}.idx", target_dir, &pack_name[..pack_name.len() - 5]);
-            let idx_bytes = idx_response.bytes().await.map_err(|err| {
-                io::Error::new(io::ErrorKind::Other, format!("Failed to read idx file: {}", err))
-            })?;
-            fs::write(&idx_path, &idx_bytes)?;
-
-            println!("Pack and idx files downloaded and stored.");
-        }
-    }
-
-    Ok(())
 }
