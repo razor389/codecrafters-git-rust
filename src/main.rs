@@ -607,7 +607,7 @@ fn verify_repository_and_objects(target_dir: &str, head_commit_sha: &str) -> io:
     })?;
 
     // Check if the head commit exists in the repository
-    let oid = Oid::from_str(head_commit_sha).map_err(|err| {
+    let oid = git2::Oid::from_str(head_commit_sha).map_err(|err| {
         io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid commit SHA: {}", err))
     })?;
 
@@ -618,7 +618,6 @@ fn verify_repository_and_objects(target_dir: &str, head_commit_sha: &str) -> io:
     println!("Verified repository and found HEAD commit: {}", head_commit_sha);
     Ok(())
 }
-
 
 // Fetch the refs from the remote repository
 async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
