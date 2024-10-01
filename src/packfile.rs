@@ -55,7 +55,10 @@ fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
 
     match decoder.read_to_end(&mut decompressed_data) {
         Ok(_) => {
+            // Print the first 100 bytes of the decompressed data for debugging
             println!("Decompressed object successfully: size = {}", decompressed_data.len());
+            println!("Decompressed data (first 100 bytes): {:?}", &decompressed_data[..100.min(decompressed_data.len())]);
+
             Ok(decompressed_data)
         },
         Err(err) => {
@@ -64,6 +67,7 @@ fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
         }
     }
 }
+
 
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
