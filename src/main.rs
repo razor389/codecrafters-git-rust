@@ -535,7 +535,7 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
 
     // Format the request body for the `git-upload-pack` request.
     let request_body = format!(
-        "{}{}0009done\n",   // 0009 is the length of "done" in pkt-line format (9 bytes total)
+        "{}{}0000",   // Send a pkt-line flush (0000) to properly terminate the request
         want_length, want_line
     );
 
