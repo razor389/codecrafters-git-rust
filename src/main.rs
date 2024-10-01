@@ -678,7 +678,6 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
     Ok(bytes.to_vec())
 }
 
-// Parse the refs response using the Git Smart HTTP protocol
 fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
     let refs_str = String::from_utf8_lossy(refs_data);
 
@@ -723,7 +722,7 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
 
                 // Split by space to separate SHA-1 from ref name
                 let ref_parts: Vec<&str> = ref_info.split_whitespace().collect();
-                if ref_parts.len() == 2 {
+                if ref_parts.len() >= 2 {
                     let sha = ref_parts[0];
                     let ref_name = ref_parts[1];
 
@@ -737,12 +736,12 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
                             branch_sha = Some(sha.to_string());
                         }
                     }
-                }
 
-                // Capture the capabilities (part after the NUL character)
-                if parts.len() > 1 {
-                    capabilities = Some(parts[1].to_string());
-                    println!("Found capabilities: {}", capabilities.as_ref().unwrap());
+                    // If this is the HEAD-tag line, capture the capabilities
+                    if ref_name == "HEAD-tag" && parts.len() > 1 {
+                        capabilities = Some(parts[1].to_string());
+                        println!("Found capabilities: {}", capabilities.as_ref().unwrap());
+                    }
                 }
             }
         }
