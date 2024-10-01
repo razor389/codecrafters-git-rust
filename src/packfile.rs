@@ -167,42 +167,45 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
 
 
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
-    let mut header_len = 0;
-    let mut size = 0;
-    let mut shift = 0;
+    if data.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
+    }
 
-    // Parse the type (first 3 bits) and size (remaining bits)
-    let c = data[header_len];
-    let obj_type = (c >> 4) & 0b111; // Object type in bits 4-6
-    size = (c & 0b1111) as usize; // Size in the last 4 bits
+    let mut header_len = 0;
+    let mut size = 0usize;
+    let mut shift = 4; // Initial shift starts from 4 since 4 bits are used for size in the first byte
+
+    // First byte holds type and part of the size
+    let mut c = data[header_len];
+    let obj_type = (c >> 4) & 0x7; // 3 bits for the object type (e.g., commit, tree, blob, etc.)
+    size = (c & 0x0F) as usize;    // Lower 4 bits for the initial size
     header_len += 1;
 
-    // If the size spans multiple bytes
-    while c & 0x80 != 0 {
-        let c = data[header_len];
-        size |= ((c & 0x7f) as usize) << shift;
+    // Parse the remaining size using varint encoding
+    while c & 0x80 != 0 { // While the continuation bit (MSB) is set, continue reading
+        if header_len >= data.len() {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
+        }
+
+        c = data[header_len];
+        size |= ((c & 0x7F) as usize) << shift; // Append 7 bits of size from the next byte
         shift += 7;
         header_len += 1;
+
+        // Additional bounds safety check
+        if shift > 28 { // Arbitrary limit to prevent an infinite shift loop
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Object size too large or invalid"));
+        }
     }
 
-    match obj_type {
-        1 => println!("Object is a commit"),
-        2 => println!("Object is a tree"),
-        3 => println!("Object is a blob"),
-        4 => println!("Object is a tag"),
-        6 => {
-            println!("Object is a reference delta (OBJ_REF_DELTA). Special handling required.");
-            // Delta objects require fetching the base object and applying the delta, which we are not doing yet.
-        }
-        7 => {
-            println!("Object is an offset delta (OBJ_OFS_DELTA). Special handling required.");
-            // Delta objects require fetching the base object and applying the delta, which we are not doing yet.
-        }
-        _ => println!("Unknown object type: {}", obj_type),
-    }
-    
+    // Debug: Log parsed object header
+    println!("Object type: {}, size: {}, header_len: {}", obj_type, size, header_len);
+
+    // Return the parsed size, header length, and object type
     Ok((size, header_len, obj_type))
 }
+
+
 
 // Write the packfile index (.idx)
 fn write_packfile_index(objects: Vec<(usize, Vec<u8>)>, output_dir: &str) -> io::Result<()> {
