@@ -688,44 +688,46 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
     let mut capabilities: Option<String> = None;
 
     for line in refs_str.lines() {
-        // Skip service announcements and lines that are too short
-        if line.starts_with("# service=git-upload-pack") || line.len() <= 8 {
-            continue; // Ignore service announcement and lines that don't have the expected length
+        // Skip service announcements and empty lines
+        if line.starts_with("# service=git-upload-pack") || line == "0000" {
+            continue;
         }
 
-        // Skip the first 8 characters (length prefix)
-        let line_content = &line[8..]; 
+        // Skip the first 4 characters (length prefix) and start from the SHA
+        if line.len() > 4 {
+            let line_content = &line[4..]; // Skip the length prefix (first 4 characters)
 
-        // Extract the SHA-1 (first 40 characters after the first 8 characters)
-        if line_content.len() > 40 {
-            let (sha, rest) = line_content.split_at(40);  // Extract the SHA
-            let sha = sha.trim();
-            let rest = rest.trim();
+            // Extract the SHA-1 (first 40 characters after the first 4 characters)
+            if line_content.len() > 40 {
+                let (sha, rest) = line_content.split_at(40);  // Extract the SHA (40 chars)
+                let sha = sha.trim();
+                let rest = rest.trim();
 
-            // Split the remaining part into ref name and capabilities
-            let mut ref_parts = rest.split_whitespace();
+                // Split the rest into ref name and capabilities
+                let mut ref_parts = rest.split_whitespace();
 
-            if let Some(ref_name) = ref_parts.next() {
-                println!("Found ref: {}, SHA: {}", ref_name, sha);
+                if let Some(ref_name) = ref_parts.next() {
+                    println!("Found ref: {}, SHA: {}", ref_name, sha);
 
-                // Collect all remaining parts as capabilities, except for symref
-                let caps: Vec<&str> = ref_parts
-                    .take_while(|part| !part.starts_with("symref="))
-                    .collect();
-                capabilities = Some(caps.join(" "));
+                    // Collect all remaining parts as capabilities, except for symref
+                    let caps: Vec<&str> = ref_parts
+                        .take_while(|part| !part.starts_with("symref="))
+                        .collect();
+                    capabilities = Some(caps.join(" "));
 
-                // Now check for the symbolic HEAD ref (symref=HEAD)
-                if let Some(symref_part) = rest.split("symref=HEAD:").nth(1) {
-                    let head_symref = symref_part.split_whitespace().next().unwrap_or("");
-                    println!("Found symbolic HEAD ref pointing to: {}", head_symref);
-                    head_ref = Some(head_symref.to_string());
-                }
+                    // Now check for the symbolic HEAD ref (symref=HEAD)
+                    if let Some(symref_part) = rest.split("symref=HEAD:").nth(1) {
+                        let head_symref = symref_part.split_whitespace().next().unwrap_or("");
+                        println!("Found symbolic HEAD ref pointing to: {}", head_symref);
+                        head_ref = Some(head_symref.to_string());
+                    }
 
-                // If this is the HEAD ref (refs/heads/master)
-                if let Some(ref head_ref_val) = head_ref {
-                    if ref_name == head_ref_val && sha.len() == 40 {
-                        branch_sha = Some(sha.to_string());
-                        println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
+                    // If this is the HEAD ref (refs/heads/master)
+                    if let Some(ref head_ref_val) = head_ref {
+                        if ref_name == head_ref_val && sha.len() == 40 {
+                            branch_sha = Some(sha.to_string());
+                            println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
+                        }
                     }
                 }
             }
