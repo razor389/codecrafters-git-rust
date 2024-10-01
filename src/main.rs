@@ -715,27 +715,29 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
                     head_ref = Some(symref.to_string());
                 }
             } else {
-                // Find where the SHA ends and capabilities begin, even if there's no space
-                if let Some((sha, ref_and_caps)) = line_content.split_at(40).into() {
-                    let mut ref_parts = ref_and_caps.trim().split_whitespace();
-                    
-                    if let Some(ref_name) = ref_parts.next() {
-                        // Debugging the found ref name and SHA
-                        println!("Found ref: {}, SHA: {}", ref_name, sha);
+                // Extract SHA (40 characters), ref, and capabilities
+                let (sha, rest) = line_content.split_at(40);
+                let rest = rest.trim();
 
-                        // Match the ref_name with the head_ref (e.g., refs/heads/master)
-                        if let Some(ref head_ref_val) = head_ref {
-                            if ref_name == head_ref_val && sha.len() == 40 {
-                                println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
-                                branch_sha = Some(sha.to_string());
-                            }
-                        }
+                // Split the rest of the line into ref_name and capabilities
+                let mut ref_parts = rest.split_whitespace();
 
-                        // Capture the capabilities from remaining parts after ref
-                        if let Some(caps) = ref_parts.next() {
-                            capabilities = Some(caps.to_string());
-                            println!("Found capabilities: {}", capabilities.as_ref().unwrap());
+                if let Some(ref_name) = ref_parts.next() {
+                    println!("Found ref: {}, SHA: {}", ref_name, sha);
+
+                    // Match the ref_name with the head_ref (e.g., refs/heads/master)
+                    if let Some(ref head_ref_val) = head_ref {
+                        if ref_name == head_ref_val && sha.len() == 40 {
+                            println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
+                            branch_sha = Some(sha.to_string());
                         }
+                    }
+
+                    // Collect all the remaining parts as capabilities
+                    let caps: Vec<&str> = ref_parts.collect();
+                    if !caps.is_empty() {
+                        capabilities = Some(caps.join(" "));
+                        println!("Found capabilities: {}", capabilities.as_ref().unwrap());
                     }
                 }
             }
