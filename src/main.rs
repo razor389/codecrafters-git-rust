@@ -648,30 +648,32 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
 // Parse the refs response and extract the HEAD commit SHA
 fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let refs_str = String::from_utf8_lossy(refs_data);
-    
+
     // Debug: Print the entire refs response for analysis
     println!("Raw refs data: {}", refs_str);
 
     for line in refs_str.lines() {
-        if line.contains("HEAD") {
+        // We're looking for the line that contains "HEAD" and "refs/heads/master"
+        if line.contains("HEAD") && line.contains("refs/heads/master") {
             let parts: Vec<&str> = line.split_whitespace().collect();
+            
+            // The first part should be the SHA-1 hash, which needs to be 40 characters long
             if parts.len() > 1 {
-                let sha = parts[0].trim();
+                let sha = parts[0];
 
-                // Trim "0000" or any leading zeros and ensure the SHA is 40 characters long
-                let sha_cleaned = sha.trim_start_matches('0');
+                // Debug: Print the extracted SHA and its length
+                println!("Extracted HEAD ref candidate: {} (length: {})", sha, sha.len());
 
-                // Ensure the cleaned SHA is 40 characters long
-                if sha_cleaned.len() == 40 {
-                    println!("Found valid HEAD ref: {} (length: {})", sha_cleaned, sha_cleaned.len());
-                    return Some(sha_cleaned.to_string());
+                if sha.len() == 40 {
+                    println!("Found valid HEAD ref: {}", sha);
+                    return Some(sha.to_string());
                 } else {
-                    println!("Invalid HEAD ref: {} (length: {})", sha_cleaned, sha_cleaned.len());
+                    println!("Invalid HEAD ref: {} (length: {})", sha, sha.len());
                 }
             }
         }
     }
-    
+
     eprintln!("HEAD ref not found.");
     None
 }
