@@ -115,8 +115,9 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         // Extract compressed data
         let compressed_data = &pack_data[offset..offset + obj_size];
         println!(
-            "Compressed data (first 200 bytes) at offset {}: {:?}",
+            "Compressed data range: offset = {}, length = {}, bytes = {:?}",
             offset,
+            obj_size,
             &compressed_data[..200.min(compressed_data.len())]
         );
 
