@@ -7,6 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use futures_util::StreamExt;
 use reqwest::Body;
 use sha1::{Sha1, Digest};
 use git2::{Repository, Oid};
@@ -524,24 +525,18 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    // Format the POST body: "want <sha>" followed by "done" to finalize the request
-    let request_body = format!(
-        "0032want {}\n0009done\n", 
-        head_commit_sha
-    );
+    let request_body = format!("0032want {}\n0009done\n", head_commit_sha);
     println!("Request body:\n{}", request_body);  // Debug: Print the request body
 
-    // Create the HTTP client and send the request
     let client = reqwest::Client::new();
+
     let response = client
         .post(&upload_pack_url)
         .header("Content-Type", "application/x-git-upload-pack-request")
-        .body(request_body)
+        .body(Body::from(request_body))
         .send()
         .await
-        .map_err(|err| {
-            io::Error::new(io::ErrorKind::Other, format!("Failed to send request: {}", err))
-        })?;
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to send request: {}", err)))?;
 
     // Debug: Check the response status and headers
     let status = response.status();
@@ -553,13 +548,12 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
         return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch packfile: HTTP status {}. Response body: {}", status, body)));
     }
 
-    // Check the content type of the response to ensure it's the right kind of packfile
     let content_type = response
         .headers()
         .get("Content-Type")
         .and_then(|val| val.to_str().ok())
         .unwrap_or("");
-    
+
     if content_type != "application/x-git-upload-pack-result" {
         return Err(io::Error::new(
             io::ErrorKind::Other,
@@ -567,24 +561,26 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
         ));
     }
 
-    // Debug: Check the content length of the response
-    if let Some(content_length) = response.content_length() {
-        println!("Content length: {}", content_length);
-    } else {
-        println!("Content length: unknown (chunked response)");
-    }
+    // Handle chunked transfer encoding
+    let mut pack_data = Vec::new();
+    let mut stream = response.bytes_stream();  // Correct stream method from reqwest
 
-    // Read the packfile data from the response
-    let pack_data = response.bytes().await.map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
-    })?;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, format!("Failed to read chunk: {}", err))
+        })?;
+        pack_data.extend(&chunk);  // Collect all chunks
+    }
 
     // Debug: Check the size of the downloaded packfile
     println!("Downloaded packfile size: {} bytes", pack_data.len());
 
-    Ok(pack_data.to_vec())
-}
+    if pack_data.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::Other, "Downloaded packfile is empty"));
+    }
 
+    Ok(pack_data)
+}
 
 // Store the downloaded packfile in the .git/objects/pack directory
 fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
