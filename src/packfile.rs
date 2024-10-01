@@ -67,77 +67,108 @@ fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
         }
     }
 }
-
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
 
     let mut offset = 12; // Skip the 12-byte PACK header
     let mut objects = Vec::new();
 
-    // Exclude the last 20 bytes (SHA-1 checksum) from packfile data
     let packfile_data_len = pack_data.len();
-    let packfile_data_end = packfile_data_len - 20;
+    let packfile_data_end = packfile_data_len - 20; // Exclude SHA-1 checksum at the end
 
     println!("Starting to parse objects in the packfile...");
 
     while offset < packfile_data_end {
-        println!("Current offset: {}", offset); // Log current position
+        println!("Current offset: {}", offset);
 
         let obj_offset = offset;
 
         // Parse the object header (size and type)
         let (obj_size, obj_header_len, obj_type) = match parse_object_header(&pack_data[offset..]) {
             Ok((size, header_len, obj_type)) => {
-                println!("Parsed object header at offset {}: size = {}, header_len = {}, type = {}", obj_offset, size, header_len, obj_type);
+                println!(
+                    "Parsed object header at offset {}: size = {}, header_len = {}, type = {}",
+                    obj_offset, size, header_len, obj_type
+                );
                 (size, header_len, obj_type)
             },
-            Err(err) => return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse object header: {}", err))),
+            Err(err) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Failed to parse object header: {}", err)
+                ));
+            }
         };
 
-        offset += obj_header_len; // Advance past the header
+        offset += obj_header_len;
 
-        // Check if we have enough bytes to read the object
-        if offset + obj_size > packfile_data_end {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!(
-                "Not enough bytes to read object data (remaining: {}, required: {})",
-                packfile_data_end - offset,
-                obj_size
-            )));
+        // Log if we encounter a delta object
+        if obj_type == 6 || obj_type == 7 {
+            println!(
+                "Delta object detected at offset {}: type = {}, size = {}",
+                obj_offset, obj_type, obj_size
+            );
+            // For now, return an error until you handle delta-encoded objects
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Delta objects (OFS_DELTA or REF_DELTA) need special handling"
+            ));
         }
 
-        // Extract the compressed data for the object
+        // Check if we have enough data for this object
+        if offset + obj_size > packfile_data_end {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                format!(
+                    "Not enough data to read object at offset {}. Required: {}, Remaining: {}",
+                    offset, obj_size, packfile_data_end - offset
+                ),
+            ));
+        }
+
+        // Get the compressed data slice
         let compressed_data = &pack_data[offset..offset + obj_size];
-        println!("Compressed data (first 200 bytes) at offset {}: {:?}", offset, &compressed_data[..200.min(compressed_data.len())]);
+        println!(
+            "Compressed data (first 200 bytes) at offset {}: {:?}",
+            offset,
+            &compressed_data[..200.min(compressed_data.len())]
+        );
 
         // Decompress the object data
         match decompress_object(compressed_data) {
             Ok(decompressed_data) => {
-                println!("Decompressed object at offset {}: size = {}", obj_offset, decompressed_data.len());
-                println!("Decompressed data (first 200 bytes): {:?}", &decompressed_data[..200.min(decompressed_data.len())]);
+                println!(
+                    "Decompressed object at offset {}: size = {}",
+                    obj_offset,
+                    decompressed_data.len()
+                );
                 objects.push((obj_offset, decompressed_data));
             },
             Err(err) => {
-                println!("Error decompressing object at offset {}: {:?}", offset, err);
-                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress object: {:?}", err)));
+                println!(
+                    "Error decompressing object at offset {}: {:?}",
+                    offset, err
+                );
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Failed to decompress object: {:?}", err)
+                ));
             }
         };
 
-        // Advance the offset to the next object
         offset += obj_size;
         println!("Moved to next object, new offset: {}", offset);
     }
 
-    // Validate the packfile checksum (SHA-1)
+    // Validate the packfile checksum
     validate_packfile_checksum(&pack_data)?;
 
-    // Write the index file based on object offsets and SHA-1 hashes
-    println!("Finished parsing objects. Writing the index file...");
+    // Write the index file
     write_packfile_index(objects, output_dir)?;
 
     println!("Packfile indexed successfully.");
     Ok(())
 }
-
 
 // Function to validate the SHA-1 checksum at the end of the packfile
 fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
