@@ -656,15 +656,12 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let mut branch_sha: Option<String> = None;
 
     for line in refs_str.lines() {
-        // Skip protocol service lines and length prefixes (e.g., '001e', '003f', etc.)
+        // Skip lines that are service headers or length prefixes
         if line.starts_with("0000") || line.starts_with("00") || line.starts_with('#') {
-            continue; // Skip length-prefixed protocol lines and comments
+            continue;
         }
 
-        // Strip the first 4 characters (length prefix) from each line
-        let line = &line[4..];
-
-        // Handle the symref for HEAD (e.g., symref=HEAD:refs/heads/master)
+        // Handle the symref=HEAD:refs/heads/master
         if line.contains("symref=HEAD") {
             if let Some(symref_part) = line.split("symref=HEAD:").nth(1) {
                 // Extract the symbolic ref that HEAD points to
@@ -673,22 +670,22 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
                 head_ref = Some(symref.to_string());
             }
         } else {
-            // Extract the actual SHA-1 and refs
+            // Extract the actual SHA-1 and ref
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() > 1 {
-                let sha = parts[0];
+                let sha = &parts[0][4..]; // Remove the first 4 chars as length prefix
                 let ref_name = parts[1];
 
-                // Ensure we skip invalid refs like "service=git-upload-pack"
+                // Ensure it's a valid SHA-1 (40 characters long)
                 if sha.len() != 40 {
-                    continue; // Skip any SHA that is not 40 characters long
+                    continue;
                 }
 
                 // Debug: Print the extracted ref and SHA
                 println!("Found ref: {}, SHA: {}", ref_name, sha);
 
-                // Check if this ref matches the symbolic HEAD ref (e.g., refs/heads/master)
-                if let Some(ref head_ref_val) = &head_ref {
+                // Match the ref_name with the head_ref (e.g., refs/heads/master)
+                if let Some(ref head_ref_val) = head_ref {
                     if ref_name == head_ref_val {
                         println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
                         branch_sha = Some(sha.to_string());
