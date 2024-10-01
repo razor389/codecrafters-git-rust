@@ -56,7 +56,6 @@ fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
     Ok(decompressed_data)
 }
 
-// Parse and index the objects in the packfile
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
 
@@ -71,11 +70,16 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Reached unexpected end of packfile"));
         }
 
+        println!("Current offset: {}", offset); // Log current position
+
         let obj_offset = offset;
 
         // Parse the object header (size and type)
         let (obj_size, obj_header_len) = match parse_object_header(&pack_data[offset..]) {
-            Ok((size, header_len)) => (size, header_len),
+            Ok((size, header_len)) => {
+                println!("Parsed object header: size = {}, header_len = {}", size, header_len);
+                (size, header_len)
+            },
             Err(err) => {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse object header: {}", err)));
             }
@@ -83,10 +87,12 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         // Check if we have enough bytes remaining to read the object
         if offset + obj_header_len + obj_size > pack_data.len() {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Not enough bytes to read object data"));
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!(
+                "Not enough bytes to read object data (remaining: {}, required: {})",
+                pack_data.len() - offset,
+                obj_header_len + obj_size
+            )));
         }
-
-        println!("Parsed object at offset {}: size = {}, header_len = {}", obj_offset, obj_size, obj_header_len);
 
         offset += obj_header_len;
 
@@ -100,6 +106,8 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         // Move to the next object
         offset += obj_size;
+
+        println!("Moved to next object, new offset: {}", offset);
     }
 
     // Write the index file based on object offsets and SHA-1 hashes
@@ -109,7 +117,6 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     println!("Packfile indexed successfully.");
     Ok(())
 }
-
 
 // Parse an individual object's header (returns size and header length)
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
