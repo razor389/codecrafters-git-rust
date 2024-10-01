@@ -166,49 +166,37 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
+    let mut header_len = 0;
+    let mut size = 0;
+    let mut shift = 4; // First 4 bits come from the first byte (rest will be filled from subsequent bytes if needed)
+
     if data.is_empty() {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
     }
 
-    let mut header_len = 0;
-    let mut size = 0usize;
-    let mut shift = 4; // Initial shift starts from 4 since 4 bits are used for size in the first byte
-
-    // First byte holds type and part of the size
+    // First byte holds the object type and part of the size
     let mut c = data[header_len];
-    let obj_type = (c >> 4) & 0x7; // 3 bits for the object type (e.g., commit, tree, blob, etc.)
-    size = (c & 0x0F) as usize;    // Lower 4 bits for the initial size
+    let obj_type = (c >> 4) & 0x7; // 3 bits for type
+    size = (c & 0x0F) as usize;    // Lower 4 bits of size
     header_len += 1;
 
-    println!("Raw header byte (first byte): {:08b}", c); // Debugging raw byte
-
-    // Parse the remaining size using varint encoding
-    while c & 0x80 != 0 { // While the continuation bit (MSB) is set, continue reading
+    // Parse varint-style size (continuation if MSB is set)
+    while c & 0x80 != 0 {
         if header_len >= data.len() {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
         }
-
         c = data[header_len];
-        println!("Raw header byte: {:08b}", c); // Debugging raw byte
-        size |= ((c & 0x7F) as usize) << shift; // Append 7 bits of size from the next byte
-        shift += 7;
+        size |= ((c & 0x7F) as usize) << shift; // Append the next 7 bits to size
+        shift += 7;  // Move to the next chunk of 7 bits
         header_len += 1;
-
-        // Additional bounds safety check
-        if shift > 28 { // Arbitrary limit to prevent an infinite shift loop
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Object size too large or invalid"));
-        }
     }
 
-    // Debug: Log parsed object header
+    // Debug print to verify object type and size
     println!("Object type: {}, size: {}, header_len: {}", obj_type, size, header_len);
 
-    // Return the parsed size, header length, and object type
     Ok((size, header_len, obj_type))
 }
-
 
 // Write the packfile index (.idx)
 fn write_packfile_index(objects: Vec<(usize, Vec<u8>)>, output_dir: &str) -> io::Result<()> {
