@@ -582,7 +582,7 @@ fn process_negotiation_phase(body_bytes: Bytes) -> io::Result<Vec<u8>> {
 
     // Read through the response and ignore non-packfile data like `NAK` and progress updates
     while pos < body_bytes.len() {
-        // Extract the length prefix
+        // Extract the length prefix (first 4 bytes of a pkt-line)
         let length_prefix = &body_bytes[pos..pos + 4];
         let length = match std::str::from_utf8(length_prefix) {
             Ok(l) => usize::from_str_radix(l, 16).unwrap_or(0),
@@ -596,7 +596,7 @@ fn process_negotiation_phase(body_bytes: Bytes) -> io::Result<Vec<u8>> {
             continue;
         }
 
-        // Extract the packet data and check if it's a control message (e.g., `NAK`)
+        // Extract the packet data
         let packet = &body_bytes[pos..pos + length - 4];
         let packet_str = std::str::from_utf8(packet).unwrap_or("");
 
@@ -604,8 +604,16 @@ fn process_negotiation_phase(body_bytes: Bytes) -> io::Result<Vec<u8>> {
         if packet_str.starts_with("NAK") || packet_str.starts_with("ACK") || packet_str.contains("continue") {
             println!("Received control packet: {}", packet_str);
         } else {
-            // This is actual packfile data, append it to the packfile_data buffer
-            packfile_data.extend_from_slice(packet);
+            // Check if we find the "PACK" header in the packet
+            if let Some(pack_header_offset) = packet.windows(4).position(|window| window == b"PACK") {
+                // Skip to the "PACK" header and store only the actual packfile data
+                let pack_data_start = pos + pack_header_offset;
+                println!("Found 'PACK' header at position {}", pack_data_start);
+
+                // Append the packfile data starting from the "PACK" header
+                packfile_data.extend_from_slice(&body_bytes[pack_data_start..]);
+                break;  // No need to read more once we find the packfile
+            }
         }
 
         pos += length - 4;
