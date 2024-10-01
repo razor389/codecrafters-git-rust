@@ -81,10 +81,11 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         // Parse the object header (size and type)
         let (obj_size, obj_header_len) = match parse_object_header(&pack_data[offset..]) {
             Ok((size, header_len)) => {
-                println!("Parsed object header: size = {}, header_len = {}", size, header_len);
+                println!("Parsed object header at offset {}: size = {}, header_len = {}", obj_offset, size, header_len);
                 (size, header_len)
             },
             Err(err) => {
+                println!("Failed to parse object header at offset {}: {}", obj_offset, err);
                 return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse object header: {}", err)));
             }
         };
@@ -100,7 +101,6 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                 obj_size
             )));
         }
-        
 
         offset += obj_header_len;
 
@@ -149,37 +149,43 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
     let mut header_len = 0;
     #[allow(unused_assignments)]
     let mut size = 0;
     let mut shift = 0;
 
-    // Check that data is not empty and has at least one byte
+    // Ensure there's at least one byte in the data
     if data.is_empty() {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
     }
 
     // Parse the type (first 3 bits) and size (remaining bits)
-    let c = data[header_len];
+    let mut c = data[header_len];
     size = (c & 0b1111) as usize; // Size in the last 4 bits
     header_len += 1;
 
-    // If the size spans multiple bytes
+    // Check if the size spans multiple bytes (when the MSB is set)
     while c & 0x80 != 0 {
+        // Ensure we have enough bytes to continue reading
         if header_len >= data.len() {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
         }
 
-        let c = data[header_len];
+        // Read the next byte
+        c = data[header_len];
         size |= ((c & 0x7f) as usize) << shift;
         shift += 7;
         header_len += 1;
     }
 
+    // Log the parsed object header
+    println!("Parsed object header: size = {}, header_len = {}", size, header_len);
+
+    // Return the parsed size and header length
     Ok((size, header_len))
 }
+
 
 // Write the packfile index (.idx)
 fn write_packfile_index(objects: Vec<(usize, Vec<u8>)>, output_dir: &str) -> io::Result<()> {
