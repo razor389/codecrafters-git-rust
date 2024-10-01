@@ -656,10 +656,13 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let mut branch_sha: Option<String> = None;
 
     for line in refs_str.lines() {
-        // Skip protocol service lines and length prefixes (e.g., '001e', '003f', etc.)
-        if line.starts_with("0000") || line.starts_with("00") || line.starts_with('#') {
+        // Skip protocol service lines and length prefixes (e.g., '0000', '001e', etc.)
+        if line.starts_with("0000") || line.starts_with('#') {
             continue;
         }
+
+        // Strip the first 4 characters (length prefix) from each line
+        let line = &line[4..];
 
         // Handle the symref for HEAD (e.g., symref=HEAD:refs/heads/master)
         if line.contains("symref=HEAD") {
