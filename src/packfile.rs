@@ -145,13 +145,16 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-
-// Parse an individual object's header (returns size and header length)
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
     let mut header_len = 0;
     #[allow(unused_assignments)]
     let mut size = 0;
     let mut shift = 0;
+
+    // Check that data is not empty and has at least one byte
+    if data.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
+    }
 
     // Parse the type (first 3 bits) and size (remaining bits)
     let c = data[header_len];
@@ -160,6 +163,10 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
 
     // If the size spans multiple bytes
     while c & 0x80 != 0 {
+        if header_len >= data.len() {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
+        }
+
         let c = data[header_len];
         size |= ((c & 0x7f) as usize) << shift;
         shift += 7;
