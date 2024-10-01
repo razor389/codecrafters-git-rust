@@ -648,7 +648,7 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
 // Parse the refs response and extract the HEAD commit SHA
 fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let refs_str = String::from_utf8_lossy(refs_data);
-    
+
     // Debug: Print the entire refs response for analysis
     println!("Raw refs data: {}", refs_str);
 
@@ -656,8 +656,8 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let mut branch_sha: Option<String> = None;
 
     for line in refs_str.lines() {
-        // Skip lines that start with '0000' or are part of the protocol
-        if line.starts_with("0000") || line.starts_with('#') {
+        // Skip protocol service lines and length prefixes (e.g., '001e', '003f', etc.)
+        if line.starts_with("0000") || line.starts_with("00") || line.starts_with('#') {
             continue;
         }
 
@@ -675,6 +675,11 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
             if parts.len() > 1 {
                 let sha = parts[0];
                 let ref_name = parts[1];
+
+                // Skip lines where SHA doesn't have 40 characters
+                if sha.len() != 40 {
+                    continue;
+                }
 
                 // Debug: Print the extracted ref and SHA
                 println!("Found ref: {}, SHA: {}", ref_name, sha);
