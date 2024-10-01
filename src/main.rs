@@ -525,53 +525,45 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    // Git capabilities required by the server
+    // Capabilities required by the server
     let capabilities = "multi_ack_detailed side-band ofs-delta shallow no-progress include-tag";
+
+    // Calculate the length of the "want" command in pkt-line format
+    // `0032` is the length of the packet (52 in hexadecimal), including the capabilities
+    let want_line = format!("want {} {}\n", head_commit_sha, capabilities);
+    let want_length = format!("{:04x}", want_line.len() + 4);  // Adding 4 for the length itself
 
     // Format the request body for the `git-upload-pack` request.
     let request_body = format!(
-        "0032want {} {}\n0009done\n",  // 0032 = length of the "want" command including capabilities
-        head_commit_sha, capabilities
+        "{}{}0009done\n",   // 0009 is the length of "done" in pkt-line format (9 bytes total)
+        want_length, want_line
     );
 
     println!("Request body:\n{}", request_body);  // Debug: Print the request body
 
     let client = reqwest::Client::new();
-
     let response = client
         .post(&upload_pack_url)
         .header("Content-Type", "application/x-git-upload-pack-request")
         .body(Body::from(request_body))
         .send()
         .await
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to send request: {}", err)))?;
+        .map_err(|err| {
+            io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err))
+        })?;
 
-    // Debug: Check the response status and headers
+    // Check the response status
     let status = response.status();
     println!("Response status: {}", status);
-    println!("Response headers:\n{:#?}", response.headers());
 
     if !status.is_success() {
         let body = response.text().await.unwrap_or_else(|_| "Unable to fetch response body".to_string());
         return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch packfile: HTTP status {}. Response body: {}", status, body)));
     }
 
-    let content_type = response
-        .headers()
-        .get("Content-Type")
-        .and_then(|val| val.to_str().ok())
-        .unwrap_or("");
-
-    if content_type != "application/x-git-upload-pack-result" {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Unexpected content type: {}. Expected application/x-git-upload-pack-result", content_type)
-        ));
-    }
-
     // Handle chunked transfer encoding
     let mut pack_data = Vec::new();
-    let mut stream = response.bytes_stream();  // Correct stream method from reqwest
+    let mut stream = response.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|err| {
@@ -580,7 +572,6 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
         pack_data.extend(&chunk);  // Collect all chunks
     }
 
-    // Debug: Check the size of the downloaded packfile
     println!("Downloaded packfile size: {} bytes", pack_data.len());
 
     if pack_data.is_empty() {
