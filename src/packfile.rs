@@ -149,6 +149,7 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
     let mut header_len = 0;
     #[allow(unused_assignments)]
