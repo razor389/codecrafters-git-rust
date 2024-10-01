@@ -508,40 +508,29 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
 }
 
 // Fetch the refs from the remote repository
-async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let response = reqwest::get(repo_url).await?;
-    let bytes = response.bytes().await?;
-    Ok(bytes.to_vec())
-}
-
-// Parse the refs response and extract the HEAD commit SHA
-fn parse_refs(refs_data: &[u8]) -> Option<String> {
-    let refs_str = String::from_utf8_lossy(refs_data);
-    for line in refs_str.lines() {
-        if line.contains("HEAD") {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() > 1 {
-                return Some(parts[0].to_string());
-            }
-        }
-    }
-    None
-}
-
-async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, reqwest::Error> {
+async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
     println!("Fetching refs from: {}", repo_url); // Debug: print the URL being fetched
-    
-    let response = reqwest::get(repo_url).await?;
-    println!("HTTP Response: {}", response.status()); // Debug: print the HTTP status
 
-    if !response.status().is_success() {
+    let response = reqwest::get(repo_url).await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to send request: {}", err))
+    })?;
+
+    let status = response.status(); // Get the status before consuming the response
+    println!("HTTP Response: {}", status); // Debug: print the HTTP status
+
+    if !status.is_success() {
+        // Consume the response to get the body
         let body = response.text().await.unwrap_or_else(|_| "Unable to fetch response body".to_string());
-        eprintln!("Error fetching refs: {} - {}", response.status(), body);
-        return Err(reqwest::Error::new(reqwest::StatusCode::from_u16(response.status().as_u16()).unwrap(), "Failed to fetch refs"));
+        eprintln!("Error fetching refs: {} - {}", status, body);
+
+        // Return an `io::Error` with the HTTP status
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: HTTP status {}", status)));
     }
 
-    let bytes = response.bytes().await?;
-    
+    let bytes = response.bytes().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read response bytes: {}", err))
+    })?;
+
     // Debug: Print the first few bytes of the response to understand the structure
     println!("Received refs data (first 100 bytes): {:?}", &bytes[..100.min(bytes.len())]);
 
@@ -567,4 +556,50 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     
     eprintln!("HEAD ref not found.");
     None
+}
+
+async fn fetch_and_store_objects(repo_url: &str, sha: &str, target_dir: &str) -> io::Result<()> {
+    let object_dir = format!("{}/.git/objects", target_dir);
+    let sha_prefix = &sha[0..2];
+    let sha_suffix = &sha[2..];
+
+    let object_url = format!("{}/{}/{}", repo_url, sha_prefix, sha_suffix);
+    println!("Fetching object from: {}", object_url); // Debug log to print the URL
+
+    let response = reqwest::get(&object_url).await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to download object: {}", err))
+    })?;
+
+    // Log the response status
+    println!("HTTP Response: {}", response.status());
+
+    if !response.status().is_success() {
+        // Print out the failed response for further debugging
+        let status_code = response.status();
+        let response_body = response.text().await.unwrap_or_else(|_| "Unable to read response body".to_string());
+        println!("Failed to fetch object. Status: {}, Body: {}", status_code, response_body);
+        
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to fetch object: HTTP status {}", status_code),
+        ));
+    }
+
+    let object_dir_path = Path::new(&object_dir).join(sha_prefix);
+    fs::create_dir_all(&object_dir_path)?;
+
+    let object_path = object_dir_path.join(sha_suffix);
+    let mut object_file = File::create(object_path)?;
+    let compressed_data = response.bytes().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read object data: {}", err))
+    })?;
+
+    let mut decoder = ZlibDecoder::new(&compressed_data[..]);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to decompress object: {}", err))
+    })?;
+
+    object_file.write_all(&decompressed_data)?;
+    Ok(())
 }
