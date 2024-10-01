@@ -683,64 +683,63 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
     // Debug: Print the entire refs response for analysis
     println!("Raw refs data: {}", refs_str);
 
-    let mut head_ref: Option<String> = None;
-    let mut branch_sha: Option<String> = None;
+    let mut sha_from_second_line: Option<String> = None;
     let mut capabilities: Option<String> = None;
 
-    for line in refs_str.lines() {
-        // Skip service announcements and empty lines
+    let mut lines_iter = refs_str.lines();
+
+    while let Some(line) = lines_iter.next() {
+        // Ignore the service announcement and pkt-line flush marker
         if line.starts_with("# service=git-upload-pack") || line == "0000" {
             continue;
         }
 
-        // Skip the first 4 characters (length prefix) and start from the SHA
-        if line.len() > 4 {
-            let line_content = &line[4..]; // Skip the length prefix (first 4 characters)
+        // Second line has an 8-character length prefix
+        if line.len() > 8 && line.starts_with("0000") {
+            let line_content = &line[8..]; // Skip the first 8 characters (length prefix)
 
-            // Extract the SHA-1 (first 40 characters after the first 4 characters)
-            if line_content.len() > 40 {
-                let (sha, rest) = line_content.split_at(40);  // Extract the SHA (40 chars)
+            if line_content.len() >= 40 {
+                let (sha, rest) = line_content.split_at(40); // Extract the SHA (first 40 chars)
                 let sha = sha.trim();
                 let rest = rest.trim();
 
-                // Split the rest into ref name and capabilities
+                sha_from_second_line = Some(sha.to_string()); // Store the SHA from second line
+
+                // Split remaining line into ref name and capabilities
                 let mut ref_parts = rest.split_whitespace();
-
-                if let Some(ref_name) = ref_parts.next() {
-                    println!("Found ref: {}, SHA: {}", ref_name, sha);
-
-                    // Collect all remaining parts as capabilities, except for symref
+                if let Some(_ref_name) = ref_parts.next() {
+                    // Collect capabilities (everything between ref name and symref)
                     let caps: Vec<&str> = ref_parts
                         .take_while(|part| !part.starts_with("symref="))
                         .collect();
                     capabilities = Some(caps.join(" "));
-                    
+                }
+            }
+        }
+        // Third line has a 4-character length prefix
+        else if line.len() > 4 {
+            let line_content = &line[4..]; // Skip the first 4 characters (length prefix)
 
-                    // Now check for the symbolic HEAD ref (symref=HEAD)
-                    if let Some(symref_part) = rest.split("symref=HEAD:").nth(1) {
-                        let head_symref = symref_part.split_whitespace().next().unwrap_or("");
-                        println!("Found symbolic HEAD ref pointing to: {}", head_symref);
-                        head_ref = Some(head_symref.to_string());
-                    }
+            if line_content.len() >= 40 {
+                let (sha, _rest) = line_content.split_at(40); // Extract the SHA
+                let sha = sha.trim();
 
-                    // If this is the HEAD ref (refs/heads/master)
-                    if let Some(ref head_ref_val) = head_ref {
-                        if ref_name == head_ref_val && sha.len() == 40 {
-                            branch_sha = Some(sha.to_string());
-                            println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
-                        }
+                // Ensure SHA from third line matches the SHA from the second line
+                if let Some(ref stored_sha) = sha_from_second_line {
+                    if stored_sha == sha {
+                        println!("SHA matches: {}", sha);
+
+                        // Return the SHA and capabilities
+                        return Some((sha.to_string(), capabilities.unwrap_or_default()));
+                    } else {
+                        println!("SHA mismatch: second line SHA = {}, third line SHA = {}", stored_sha, sha);
+                        return None;
                     }
                 }
             }
         }
     }
-    println!("capabilities: {:?}", capabilities.clone());
 
-    // Return the branch SHA and capabilities if found
-    if let Some(sha) = branch_sha {
-        return Some((sha, capabilities.unwrap_or_default()));
-    }
-
-    eprintln!("HEAD ref not found.");
+    println!("HEAD ref not found.");
     None
 }
