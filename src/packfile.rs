@@ -177,6 +177,10 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
 }
 
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
+    if data.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
+    }
+
     let mut header_len = 1;  // First byte is always part of the header
     let first_byte = data[0];
 
@@ -187,6 +191,11 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     let mut size = (first_byte & 0x0F) as usize;
     let mut shift = 4;
 
+    println!("Parsing object header...");
+    println!("First byte: {:08b} (binary), 0x{:02x} (hex)", first_byte, first_byte);
+    println!("Initial object type: {}", obj_type);
+    println!("Initial size (from 4 bits): {}", size);
+
     // Check if size encoding spans multiple bytes (if bit 7 is set)
     let mut index = 1;
     while (first_byte & 0x80) != 0 {
@@ -195,9 +204,12 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
         }
 
         let next_byte = data[index];
+        println!("Byte {}: {:08b} (binary), 0x{:02x} (hex)", index, next_byte, next_byte);
         size |= ((next_byte & 0x7F) as usize) << shift;  // Use 7 bits for size
         shift += 7;
         index += 1;
+
+        println!("Updated size: {}", size);
 
         // Stop when the continuation bit (MSB) is 0
         if next_byte & 0x80 == 0 {
@@ -206,9 +218,11 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     }
 
     header_len = index;
+    println!("Parsed object header length: {}", header_len);
+    println!("Final size: {}, object type: {}", size, obj_type);
+
     Ok((size, header_len, obj_type))
 }
-
 
 // Write the packfile index (.idx)
 fn write_packfile_index(objects: Vec<(usize, Vec<u8>)>, output_dir: &str) -> io::Result<()> {
