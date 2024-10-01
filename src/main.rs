@@ -687,81 +687,44 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
     let mut head_ref: Option<String> = None;
     let mut branch_sha: Option<String> = None;
     let mut capabilities: Option<String> = None;
-    let mut processing_refs = false;
 
     for line in refs_str.lines() {
-        // Skip lines that are only "0000" (pkt-line flush marker)
-        if line == "0000" {
-            continue;
+        // Skip pkt-line flush marker and length prefix (first 8 characters)
+        if line.len() <= 8 {
+            continue; // Ignore lines that are too short
         }
+        let line_content = &line[8..]; // Skip the first 8 characters (0000 and length prefix)
 
-        // Strip the first 4 characters (length prefix) from each line
-        let line_content = &line[4..];
+        // Extract the SHA-1 (40 characters after the first 8 characters)
+        if line_content.len() >= 40 {
+            let (sha, rest) = line_content.split_at(40); // SHA is always 40 characters
+            let sha = sha.trim();
+            let rest = rest.trim();
 
-        // Handle the first pkt-line: `# service=git-upload-pack`
-        if line_content.starts_with("# service=git-upload-pack") {
-            println!("Found service announcement: {}", line_content);
-            processing_refs = true;
-            continue;
-        }
+            // Now split the rest into ref name and capabilities
+            let mut ref_parts = rest.split_whitespace();
 
-        // Start processing refs after the service announcement
-        if processing_refs {
-            // The line contains SHA-1, ref, and possibly capabilities
-            if line_content.contains("symref=HEAD") {
-                // This line contains both the HEAD and capabilities
-                println!("Found line with symref=HEAD and capabilities");
+            if let Some(ref_name) = ref_parts.next() {
+                println!("Found ref: {}, SHA: {}", ref_name, sha);
 
-                // Split the line by NUL (`\0`) to separate ref/capabilities from SHA-1
-                let parts: Vec<&str> = line_content.split('\0').collect();
-                let ref_info = parts[0]; // The part before the capabilities
+                // Collect all remaining parts as capabilities, except for symref
+                let caps: Vec<&str> = ref_parts
+                    .take_while(|part| !part.starts_with("symref="))
+                    .collect();
+                capabilities = Some(caps.join(" "));
 
-                // Split ref_info to extract SHA and ref
-                if ref_info.len() > 40 {
-                    let (sha, ref_name_with_symref) = ref_info.split_at(40); // SHA is the first 40 chars
-                    let sha = sha.trim();
-                    let rest = ref_name_with_symref.trim();
-
-                    // Check if the ref contains "symref=HEAD"
-                    if rest.contains("symref=HEAD") {
-                        let symref_part = rest.split("symref=HEAD:").nth(1).unwrap_or("").trim();
-                        let head_symref = symref_part.split_whitespace().next().unwrap_or("");
-                        println!("Found symbolic HEAD ref pointing to: {}", head_symref);
-                        head_ref = Some(head_symref.to_string());
-
-                        // Now extract capabilities from the parts after '\0'
-                        if parts.len() > 1 {
-                            capabilities = Some(parts[1].trim().to_string());
-                            println!("Found capabilities: {}", capabilities.as_ref().unwrap());
-                        }
-
-                        branch_sha = Some(sha.to_string());
-                    }
+                // Now check for the symbolic HEAD ref (symref=HEAD)
+                if let Some(symref_part) = rest.split("symref=HEAD:").nth(1) {
+                    let head_symref = symref_part.split_whitespace().next().unwrap_or("");
+                    println!("Found symbolic HEAD ref pointing to: {}", head_symref);
+                    head_ref = Some(head_symref.to_string());
                 }
-            } else {
-                // This line might not contain the symbolic HEAD, just normal refs
-                let (sha, rest) = line_content.split_at(40); // SHA is the first 40 chars
-                let rest = rest.trim();
 
-                // Split the rest of the line into ref_name and capabilities
-                let mut ref_parts = rest.split_whitespace();
-
-                if let Some(ref_name) = ref_parts.next() {
-                    println!("Found ref: {}, SHA: {}", ref_name, sha);
-
-                    // Collect all the remaining parts as capabilities
-                    let caps: Vec<&str> = ref_parts.collect();
-                    if !caps.is_empty() && capabilities.is_none() {
-                        capabilities = Some(caps.join(" "));
-                        println!("Found capabilities: {}", capabilities.as_ref().unwrap());
-                    }
-
-                    // Match this ref_name with the previously discovered HEAD ref
-                    if let Some(ref head_ref_val) = head_ref {
-                        if ref_name == head_ref_val && sha.len() == 40 {
-                            println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
-                            branch_sha = Some(sha.to_string());
-                        }
+                // If this is the HEAD ref (refs/heads/master)
+                if let Some(ref head_ref_val) = head_ref {
+                    if ref_name == head_ref_val && sha.len() == 40 {
+                        branch_sha = Some(sha.to_string());
+                        println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
                     }
                 }
             }
