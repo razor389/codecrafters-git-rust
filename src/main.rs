@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use bytes::Bytes;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::fs::File;
@@ -559,15 +560,64 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
         ));
     }
 
-    // Step 7: Read the response body (packfile data)
-    let pack_data = response.bytes().await.map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
+    // Step 7: Handle the negotiation phase: discard intermediate responses like `NAK`
+    let body_bytes = response.bytes().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read response bytes: {}", err))
     })?;
 
-    println!("Downloaded packfile size: {} bytes", pack_data.len());
+    println!("Received response: first 100 bytes: {:?}", &body_bytes[..100.min(body_bytes.len())]);
+
+    // Parse and process the response, skipping control responses like NAK or ACK
+    let packfile_data = process_negotiation_phase(body_bytes)?;
 
     // Step 8: Return the packfile data
-    Ok(pack_data.to_vec())
+    Ok(packfile_data)
+}
+
+
+// Process the server response and extract the actual packfile data
+fn process_negotiation_phase(body_bytes: Bytes) -> io::Result<Vec<u8>> {
+    let mut packfile_data = Vec::new();
+    let mut pos = 0;
+
+    // Read through the response and ignore non-packfile data like `NAK` and progress updates
+    while pos < body_bytes.len() {
+        // Extract the length prefix
+        let length_prefix = &body_bytes[pos..pos + 4];
+        let length = match std::str::from_utf8(length_prefix) {
+            Ok(l) => usize::from_str_radix(l, 16).unwrap_or(0),
+            Err(_) => return Err(io::Error::new(io::ErrorKind::InvalidData, "Failed to parse length prefix")),
+        };
+
+        pos += 4;
+
+        // If the length is zero, it's a flush packet (pkt-line protocol)
+        if length == 0 {
+            continue;
+        }
+
+        // Extract the packet data and check if it's a control message (e.g., `NAK`)
+        let packet = &body_bytes[pos..pos + length - 4];
+        let packet_str = std::str::from_utf8(packet).unwrap_or("");
+
+        // Check for 'NAK' or 'ACK' packets and ignore them
+        if packet_str.starts_with("NAK") || packet_str.starts_with("ACK") || packet_str.contains("continue") {
+            println!("Received control packet: {}", packet_str);
+        } else {
+            // This is actual packfile data, append it to the packfile_data buffer
+            packfile_data.extend_from_slice(packet);
+        }
+
+        pos += length - 4;
+    }
+
+    // Return the packfile data (this is what we'll store and validate later)
+    if packfile_data.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "No packfile data found"));
+    }
+
+    println!("Extracted packfile data, size: {} bytes", packfile_data.len());
+    Ok(packfile_data)
 }
 
 // Check out the HEAD commit and write files to the working directory
