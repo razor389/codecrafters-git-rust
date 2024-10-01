@@ -3,16 +3,17 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::fs::File;
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use packfile::store_packfile;
 use reqwest::Body;
 use sha1::{Sha1, Digest};
 use git2::{Repository, Oid};
 //use reqwest::Url;
 use tokio;
+mod packfile;
 
 #[tokio::main]
 async fn main() {
@@ -567,41 +568,6 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
 
     // Step 8: Return the packfile data
     Ok(pack_data.to_vec())
-}
-
-
-fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
-    let pack_dir = format!("{}/.git/objects/pack", target_dir);
-    fs::create_dir_all(&pack_dir)?;
-
-    // Step 1: Write the packfile to disk
-    let pack_file_path = format!("{}/packfile.pack", pack_dir);
-    let mut pack_file = fs::File::create(&pack_file_path)?;
-    pack_file.write_all(&pack_data)?;
-
-    println!("Packfile stored at: {}", pack_file_path);
-
-    // Step 2: Index the packfile using the `git index-pack` command
-    let output = Command::new("git")
-        .arg("index-pack")
-        .arg(pack_file_path)
-        .output()
-        .map_err(|err| {
-            io::Error::new(io::ErrorKind::Other, format!("Failed to run `git index-pack`: {}", err))
-        })?;
-
-    if !output.status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "Failed to index packfile: {}",
-                String::from_utf8_lossy(&output.stderr)
-            ),
-        ));
-    }
-
-    println!("Packfile indexed successfully.");
-    Ok(())
 }
 
 // Check out the HEAD commit and write files to the working directory
