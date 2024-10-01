@@ -169,7 +169,7 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     let mut header_len = 0;
     let mut size = 0;
-    let mut shift = 4; // First 4 bits come from the first byte (rest will be filled from subsequent bytes if needed)
+    let mut shift = 4; // First 4 bits come from first byte (rest will be filled from subsequent bytes if needed)
 
     if data.is_empty() {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
