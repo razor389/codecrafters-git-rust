@@ -52,8 +52,17 @@ fn validate_packfile(pack_data: &[u8]) -> io::Result<()> {
 fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
-    decoder.read_to_end(&mut decompressed_data)?;
-    Ok(decompressed_data)
+
+    match decoder.read_to_end(&mut decompressed_data) {
+        Ok(_) => {
+            println!("Decompressed object successfully: size = {}", decompressed_data.len());
+            Ok(decompressed_data)
+        },
+        Err(err) => {
+            println!("Error decompressing object: {:?}", err);
+            Err(io::Error::new(io::ErrorKind::InvalidInput, format!("corrupt deflate stream: {:?}", err)))
+        }
+    }
 }
 
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
