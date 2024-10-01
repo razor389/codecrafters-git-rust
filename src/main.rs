@@ -8,8 +8,11 @@ use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use sha1::{Sha1, Digest};
+//use reqwest::Url;
+use tokio;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
@@ -147,7 +150,21 @@ fn main() {
                 Err(e) => eprintln!("Error: {}", e),
             }
         }
-    
+        
+        "clone" => {
+            if args.len() != 4 {
+                eprintln!("Usage: clone <remote_repo> <directory>");
+                return;
+            }
+
+            let remote_repo = &args[2];
+            let target_dir = &args[3];
+            match clone_repo(remote_repo, target_dir).await {
+                Ok(_) => println!("Cloned repository into {}", target_dir),
+                Err(e) => eprintln!("Error: {}", e),
+            }
+        }
+
         _ => {
             println!("unknown command: {}", args[1]);
         }
@@ -457,4 +474,90 @@ fn create_commit(tree_sha: &str, message: &str, parent_sha: Option<&str>) -> io:
     fs::write(".git/HEAD", format!("{}\n", commit_sha))?;
 
     Ok(commit_sha)
+}
+
+// Clone the repository from a remote HTTP repository
+async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
+    // Check if the target directory already exists
+    if Path::new(target_dir).exists() {
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, "Target directory already exists"));
+    }
+
+    // Create the target directory
+    fs::create_dir(target_dir)?;
+
+    // Step 1: Discover the repository by fetching info/refs
+    let repo_url = format!("{}/info/refs?service=git-upload-pack", remote_repo);
+    let refs_data = match fetch_refs(&repo_url).await {
+        Ok(data) => data,
+        Err(err) => return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err))),
+    };
+
+    // Parse refs and get the HEAD commit SHA
+    let head_commit_sha = match parse_refs(&refs_data) {
+        Some(sha) => sha,
+        None => return Err(io::Error::new(io::ErrorKind::NotFound, "HEAD commit not found")),
+    };
+
+    // Step 2: Download the objects
+    let git_objects_url = format!("{}/objects", remote_repo);
+    fetch_and_store_objects(&git_objects_url, &head_commit_sha, target_dir).await?;
+
+    println!("Repository cloned from {} to {}", remote_repo, target_dir);
+    Ok(())
+}
+
+// Fetch the refs from the remote repository
+async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, reqwest::Error> {
+    let response = reqwest::get(repo_url).await?;
+    let bytes = response.bytes().await?;
+    Ok(bytes.to_vec())
+}
+
+// Parse the refs response and extract the HEAD commit SHA
+fn parse_refs(refs_data: &[u8]) -> Option<String> {
+    let refs_str = String::from_utf8_lossy(refs_data);
+    for line in refs_str.lines() {
+        if line.contains("HEAD") {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() > 1 {
+                return Some(parts[0].to_string());
+            }
+        }
+    }
+    None
+}
+
+async fn fetch_and_store_objects(repo_url: &str, sha: &str, target_dir: &str) -> io::Result<()> {
+    let object_dir = format!("{}/.git/objects", target_dir);
+    let sha_prefix = &sha[0..2];
+    let sha_suffix = &sha[2..];
+
+    let object_url = format!("{}/{}/{}", repo_url, sha_prefix, sha_suffix);
+    let response = reqwest::get(&object_url).await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to download object: {}", err))
+    })?;
+
+    if !response.status().is_success() {
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch object: HTTP status {}", response.status())));
+    }
+
+    let object_dir_path = Path::new(&object_dir).join(sha_prefix);
+    fs::create_dir_all(&object_dir_path)?;
+
+    let object_path = object_dir_path.join(sha_suffix);
+    let mut object_file = File::create(object_path)?;
+    let compressed_data = response.bytes().await.map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to read object data: {}", err))
+    })?;
+
+    // Use a byte slice `&[u8]` which implements `Read` for the ZlibDecoder
+    let mut decoder = ZlibDecoder::new(&compressed_data[..]);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data).map_err(|err| {
+        io::Error::new(io::ErrorKind::Other, format!("Failed to decompress object: {}", err))
+    })?;
+
+    object_file.write_all(&decompressed_data)?;
+    Ok(())
 }
