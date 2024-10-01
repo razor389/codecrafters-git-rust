@@ -78,11 +78,11 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         let obj_offset = offset;
 
-        // Parse the object header (size and type)
-        let (obj_size, obj_header_len) = match parse_object_header(&pack_data[offset..]) {
-            Ok((size, header_len)) => {
-                println!("Parsed object header at offset {}: size = {}, header_len = {}", obj_offset, size, header_len);
-                (size, header_len)
+        // Parse the object header (size, header_len, and type)
+        let (obj_size, obj_header_len, obj_type) = match parse_object_header(&pack_data[offset..]) {
+            Ok((size, header_len, obj_type)) => {
+                println!("Parsed object header at offset {}: size = {}, header_len = {}, type = {}", obj_offset, size, header_len, obj_type);
+                (size, header_len, obj_type)
             },
             Err(err) => {
                 println!("Failed to parse object header at offset {}: {}", obj_offset, err);
@@ -90,49 +90,65 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             }
         };
 
+        offset += obj_header_len;
+
+        match obj_type {
+            1 => println!("Object is a commit"),
+            2 => println!("Object is a tree"),
+            3 => println!("Object is a blob"),
+            4 => println!("Object is a tag"),
+            6 => {
+                println!("Object is an OFS_DELTA (delta object by offset)");
+                // Implement logic to handle OFS_DELTA (offset delta)
+                // This will involve locating the base object and applying the delta to it
+            },
+            7 => {
+                println!("Object is a REF_DELTA (delta object by reference)");
+                // Implement logic to handle REF_DELTA (delta object by reference)
+                // This will involve locating the base object using its SHA-1 and applying the delta
+            },
+            _ => {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Unknown object type: {}", obj_type)));
+            }
+        }
+
         // Check if we have enough bytes remaining to read the object
-        if offset + obj_header_len + obj_size > packfile_data_end {
+        if offset + obj_size > packfile_data_end {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!(
-                "Not enough bytes to read object data (remaining: {}, required: {}, offset: {}, header_len: {}, obj_size: {})",
+                "Not enough bytes to read object data (remaining: {}, required: {}, offset: {}, obj_size: {})",
                 packfile_data_end - offset,
-                obj_header_len + obj_size,
+                obj_size,
                 offset,
-                obj_header_len,
                 obj_size
             )));
         }
 
-        offset += obj_header_len;
+        // Read and decompress object data (only for non-delta objects)
+        if obj_type < 6 {
+            let compressed_data = &pack_data[offset..offset + obj_size];
+            println!("Compressed data (first 20 bytes) at offset {}: {:?}", offset, &compressed_data[..20.min(compressed_data.len())]);
 
-        // Debug: Print the compressed data before decompressing
-        let compressed_data = &pack_data[offset..offset + obj_size];
-        println!("Compressed data (first 20 bytes) at offset {}: {:?}", offset, &compressed_data[..20.min(compressed_data.len())]);
-        // Check the consistency between the object size and the available data
-        if obj_size > compressed_data.len() {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!(
-                "Object size {} exceeds available data size {} at offset {}",
-                obj_size,
-                compressed_data.len(),
-                offset
-            )));
+            // Decompress the object data
+            let decompressed_data = match decompress_object(compressed_data) {
+                Ok(data) => data,
+                Err(err) => {
+                    println!("Error decompressing object at offset {}: {:?}", offset, err);
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress object: {:?}", err)));
+                }
+            };
+
+            println!("Decompressed object at offset {}: size = {}", obj_offset, decompressed_data.len());
+
+            // Store the object offset and its decompressed data
+            objects.push((obj_offset, decompressed_data));
+        } else {
+            // Handle delta objects later
+            // For now, let's just advance the offset by the object size
+            println!("Skipping delta object at offset {}", offset);
         }
-
-        // Decompress the object data
-        let decompressed_data = match decompress_object(compressed_data) {
-            Ok(data) => data,
-            Err(err) => {
-                println!("Error decompressing object at offset {}: {:?}", offset, err);
-                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress object: {:?}", err)));
-            }
-        };
-        println!("Decompressed object at offset {}: size = {}", obj_offset, decompressed_data.len());
-
-        // Store the object offset and its decompressed data
-        objects.push((obj_offset, decompressed_data));
 
         // Move to the next object
         offset += obj_size;
-
         println!("Moved to next object, new offset: {}", offset);
     }
 
@@ -147,11 +163,9 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     Ok(())
 }
 
+
 // Function to validate the SHA-1 checksum at the end of the packfile
 fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
-    use sha1::Sha1;
-
-    // Calculate the checksum of the data, excluding the last 20 bytes
     let data_without_checksum = &pack_data[..pack_data.len() - 20];
     let expected_checksum = &pack_data[pack_data.len() - 20..];
 
@@ -167,7 +181,8 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
+
+fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     let mut header_len = 0;
     #[allow(unused_assignments)]
     let mut size = 0;
@@ -177,28 +192,30 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
     }
 
-    // Parse the first byte: object type and size part
+    // First byte holds type and size bits
     let mut c = data[header_len];
-    let obj_type = (c >> 4) & 0x7; // Extract object type (commit, tree, etc.)
-    size = (c & 0x0F) as usize; // Size in the last 4 bits
+    let obj_type = (c >> 4) & 0x7; // 3 bits for type
+    size = (c & 0x0F) as usize;    // 4 bits for size
     header_len += 1;
 
-    // Parse the remaining size if necessary (varint encoding)
+    // Parse size (varint encoding)
     while c & 0x80 != 0 {
         if header_len >= data.len() {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
         }
-
         c = data[header_len];
         size |= ((c & 0x7F) as usize) << shift;
         shift += 7;
         header_len += 1;
     }
 
+    // Object types:
+    // 1 = commit, 2 = tree, 3 = blob, 4 = tag, 6 = OFS_DELTA, 7 = REF_DELTA
     println!("Object type: {}, size: {}, header_len: {}", obj_type, size, header_len);
 
-    Ok((size, header_len))
+    Ok((size, header_len, obj_type))
 }
+
 
 
 // Write the packfile index (.idx)
