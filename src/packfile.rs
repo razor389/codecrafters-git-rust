@@ -62,11 +62,15 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     let mut offset = 12; // Skip the 12-byte header
     let mut objects = Vec::new();
 
+    // Calculate the limit, excluding the last 20 bytes for the SHA-1 checksum
+    let packfile_data_len = pack_data.len();
+    let packfile_data_end = packfile_data_len - 20; // Skip the last 20 bytes (SHA-1 checksum)
+
     println!("Starting to parse objects in the packfile...");
 
-    while offset < pack_data.len() - 20 { // Leave out the final SHA-1 checksum
+    while offset < packfile_data_end {
         // Ensure we don't go out of bounds
-        if offset >= pack_data.len() {
+        if offset >= packfile_data_len {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Reached unexpected end of packfile"));
         }
 
@@ -86,10 +90,10 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         };
 
         // Check if we have enough bytes remaining to read the object
-        if offset + obj_header_len + obj_size > pack_data.len() {
+        if offset + obj_header_len + obj_size > packfile_data_end {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, format!(
                 "Not enough bytes to read object data (remaining: {}, required: {})",
-                pack_data.len() - offset,
+                packfile_data_end - offset,
                 obj_header_len + obj_size
             )));
         }
@@ -110,6 +114,9 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         println!("Moved to next object, new offset: {}", offset);
     }
 
+    // Validate the packfile checksum (SHA-1)
+    validate_packfile_checksum(&pack_data)?;
+
     // Write the index file based on object offsets and SHA-1 hashes
     println!("Finished parsing objects. Writing the index file...");
     write_packfile_index(objects, output_dir)?;
@@ -117,6 +124,27 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     println!("Packfile indexed successfully.");
     Ok(())
 }
+
+// Function to validate the SHA-1 checksum at the end of the packfile
+fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
+    use sha1::Sha1;
+
+    // Calculate the checksum of the data, excluding the last 20 bytes
+    let data_without_checksum = &pack_data[..pack_data.len() - 20];
+    let expected_checksum = &pack_data[pack_data.len() - 20..];
+
+    let mut hasher = Sha1::new();
+    hasher.update(data_without_checksum);
+    let calculated_checksum = hasher.finalize();
+
+    if &calculated_checksum[..] != expected_checksum {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Packfile checksum does not match"));
+    }
+
+    println!("Packfile checksum is valid.");
+    Ok(())
+}
+
 
 // Parse an individual object's header (returns size and header length)
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize)> {
