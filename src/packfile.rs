@@ -91,7 +91,18 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         // Parse the object header (size, header_len, and type)
         let (obj_size, obj_header_len, obj_type) = match parse_object_header(&pack_data[offset..]) {
+            
             Ok((size, header_len, obj_type)) => {
+                match obj_type {
+                    1 => println!("Object is a commit"),
+                    2 => println!("Object is a tree"),
+                    3 => println!("Object is a blob"),
+                    4 => println!("Object is a tag"),
+                    6 => println!("Object is an OFS_DELTA"),
+                    7 => println!("Object is a REF_DELTA"),
+                    _ => return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown object type")),
+                }
+                
                 println!("Parsed object header at offset {}: size = {}, header_len = {}, type = {}", obj_offset, size, header_len, obj_type);
                 (size, header_len, obj_type)
             },
@@ -181,6 +192,8 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     size = (c & 0x0F) as usize;    // Lower 4 bits for the initial size
     header_len += 1;
 
+    println!("Raw header byte (first byte): {:08b}", c); // Debugging raw byte
+
     // Parse the remaining size using varint encoding
     while c & 0x80 != 0 { // While the continuation bit (MSB) is set, continue reading
         if header_len >= data.len() {
@@ -188,6 +201,7 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
         }
 
         c = data[header_len];
+        println!("Raw header byte: {:08b}", c); // Debugging raw byte
         size |= ((c & 0x7F) as usize) << shift; // Append 7 bits of size from the next byte
         shift += 7;
         header_len += 1;
@@ -204,7 +218,6 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     // Return the parsed size, header length, and object type
     Ok((size, header_len, obj_type))
 }
-
 
 
 // Write the packfile index (.idx)
