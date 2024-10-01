@@ -645,7 +645,7 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
     Ok(bytes.to_vec())
 }
 
-// Parse the refs response and extract the HEAD commit SHA
+// Parse the refs response using the Git Smart HTTP protocol
 fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let refs_str = String::from_utf8_lossy(refs_data);
 
@@ -654,48 +654,61 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
 
     let mut head_ref: Option<String> = None;
     let mut branch_sha: Option<String> = None;
+    let mut processing_refs = false; // Set to true when we start processing refs
 
     for line in refs_str.lines() {
-        // Skip lines that are service headers or length prefixes
-        if line.starts_with("0000") || line.starts_with("00") || line.starts_with('#') {
+        // Skip empty lines and lines with '0000' (pkt-line flush marker)
+        if line.starts_with("0000") {
             continue;
         }
 
-        // Handle the symref=HEAD:refs/heads/master
-        if line.contains("symref=HEAD") {
-            if let Some(symref_part) = line.split("symref=HEAD:").nth(1) {
-                // Extract the symbolic ref that HEAD points to
-                let symref = symref_part.split_whitespace().next().unwrap_or("").trim();
-                println!("Found symbolic HEAD ref pointing to: {}", symref);
-                head_ref = Some(symref.to_string());
-            }
-        } else {
-            // Extract the actual SHA-1 and ref
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() > 1 {
-                let sha = &parts[0][4..]; // Remove the first 4 chars as length prefix
-                let ref_name = parts[1];
+        // Strip the first 4 characters (length prefix) from each line
+        let line_content = &line[4..];
 
-                // Ensure it's a valid SHA-1 (40 characters long)
-                if sha.len() != 40 {
-                    continue;
+        // Handle the first pkt-line: `# service=git-upload-pack`
+        if line_content.starts_with("# service=git-upload-pack") {
+            println!("Found service announcement: {}", line_content);
+            processing_refs = true; // Now we will process the ref discovery
+            continue;
+        }
+
+        // Start processing refs after the service announcement
+        if processing_refs {
+            // The line should contain SHA-1, ref, and possibly capabilities
+            if line_content.contains("symref=HEAD") {
+                // Handle the symbolic HEAD ref (e.g., symref=HEAD:refs/heads/master)
+                if let Some(symref_part) = line_content.split("symref=HEAD:").nth(1) {
+                    let symref = symref_part.split_whitespace().next().unwrap_or("").trim();
+                    println!("Found symbolic HEAD ref pointing to: {}", symref);
+                    head_ref = Some(symref.to_string());
                 }
+            } else {
+                // Split by NUL (`\0`) to separate ref from capabilities
+                let parts: Vec<&str> = line_content.split('\0').collect();
+                let ref_info = parts[0]; // This is the part before the capabilities
 
-                // Debug: Print the extracted ref and SHA
-                println!("Found ref: {}, SHA: {}", ref_name, sha);
+                // Split by space to separate SHA-1 from ref name
+                let ref_parts: Vec<&str> = ref_info.split_whitespace().collect();
+                if ref_parts.len() == 2 {
+                    let sha = ref_parts[0];
+                    let ref_name = ref_parts[1];
 
-                // Match the ref_name with the head_ref (e.g., refs/heads/master)
-                if let Some(ref head_ref_val) = head_ref {
-                    if ref_name == head_ref_val {
-                        println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
-                        branch_sha = Some(sha.to_string());
+                    // Debug: Print the extracted ref and SHA
+                    println!("Found ref: {}, SHA: {}", ref_name, sha);
+
+                    // Match the ref_name with the head_ref (e.g., refs/heads/master)
+                    if let Some(ref head_ref_val) = head_ref {
+                        if ref_name == head_ref_val && sha.len() == 40 {
+                            println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
+                            branch_sha = Some(sha.to_string());
+                        }
                     }
                 }
             }
         }
     }
 
-    // If we found the branch SHA, return it
+    // Return the branch SHA if found
     if let Some(sha) = branch_sha {
         return Some(sha);
     }
