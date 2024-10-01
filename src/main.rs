@@ -645,7 +645,7 @@ async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
     Ok(bytes.to_vec())
 }
 
-// Parse the refs response and extract HEAD commit SHA
+// Parse the refs response and extract the HEAD commit SHA
 fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let refs_str = String::from_utf8_lossy(refs_data);
     
@@ -656,10 +656,18 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
         if line.contains("HEAD") {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() > 1 {
-                // Ensure the extracted SHA is 40 characters long (a valid SHA-1 hash)
                 let sha = parts[0].trim();
-                println!("Found HEAD ref: {} (length: {})", sha, sha.len());
-                return Some(sha.to_string());
+
+                // Trim "0000" or any leading zeros and ensure the SHA is 40 characters long
+                let sha_cleaned = sha.trim_start_matches('0');
+
+                // Ensure the cleaned SHA is 40 characters long
+                if sha_cleaned.len() == 40 {
+                    println!("Found valid HEAD ref: {} (length: {})", sha_cleaned, sha_cleaned.len());
+                    return Some(sha_cleaned.to_string());
+                } else {
+                    println!("Invalid HEAD ref: {} (length: {})", sha_cleaned, sha_cleaned.len());
+                }
             }
         }
     }
