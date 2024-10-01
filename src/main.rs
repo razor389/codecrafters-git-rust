@@ -527,7 +527,6 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: 
 
     // Step 1: Create the 'want' line and directly add the capabilities from the parse_refs result
     let want_line = format!("want {} {}\n", head_commit_sha, capabilities);
-    println!("want line: {}", want_line);
 
     // Step 2: Calculate the length of the want line including the 4-byte length prefix
     let want_length = format!("{:04x}", want_line.len() + 4);
