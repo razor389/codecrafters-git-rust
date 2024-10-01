@@ -533,7 +533,6 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
 
     // Build the request body with the "want" command followed by the flush pkt-line (0000)
     let request_body = format!("{}{}0000", want_length, want_line);
-
     println!("Request body:\n{}", request_body);
 
     // Create the HTTP client
