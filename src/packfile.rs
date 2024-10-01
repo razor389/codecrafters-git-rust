@@ -90,6 +90,17 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         offset += obj_header_len;
 
+        // Handle delta objects separately
+        if obj_type == 6 || obj_type == 7 {
+            println!(
+                "Delta object detected at offset {}: type = {}, size = {}",
+                obj_offset, obj_type, obj_size
+            );
+            // Skip delta objects for now
+            offset += obj_size;
+            continue;
+        }
+
         // Ensure we don't go out of bounds
         if offset + obj_size > packfile_data_end {
             return Err(io::Error::new(
@@ -102,14 +113,14 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         }
 
         // Extract compressed data
-        let compressed_data = &pack_data[offset..packfile_data_end];
+        let compressed_data = &pack_data[offset..offset + obj_size];
         println!(
             "Compressed data (first 200 bytes) at offset {}: {:?}",
             offset,
             &compressed_data[..200.min(compressed_data.len())]
         );
 
-        // Attempt to decompress the object and track bytes consumed
+        // Decompress the object
         match decompress_object_with_consumed(compressed_data) {
             Ok((decompressed_data, bytes_consumed)) => {
                 println!(
@@ -118,17 +129,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                     decompressed_data.len(),
                     bytes_consumed
                 );
-                // Print some parts of the data to inspect
-                println!(
-                    "First 20 bytes of decompressed data: {:?}",
-                    &decompressed_data[..20.min(decompressed_data.len())]
-                );
-                println!(
-                    "First 20 bytes of compressed data: {:?}",
-                    &compressed_data[..20.min(compressed_data.len())]
-                );
                 objects.push((obj_offset, decompressed_data));
-                offset += bytes_consumed; // Adjust the offset by the consumed bytes
             },
             Err(err) => {
                 println!(
@@ -142,6 +143,8 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             }
         };
 
+        // Move to the next object
+        offset += obj_size;
         println!("Moved to next object, new offset: {}", offset);
     }
 
@@ -173,36 +176,38 @@ fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
 }
 
 fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
-    let mut header_len = 0;
-    let mut size = 0;
-    let mut shift = 4; // First 4 bits come from first byte (rest will be filled from subsequent bytes if needed)
+    let mut header_len = 1;  // First byte is always part of the header
+    let first_byte = data[0];
 
-    if data.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
-    }
+    // Extract object type (3 bits)
+    let obj_type = (first_byte >> 4) & 0x07;
 
-    // First byte holds the object type and part of the size
-    let mut c = data[header_len];
-    let obj_type = (c >> 4) & 0x7; // 3 bits for type
-    size = (c & 0x0F) as usize;    // Lower 4 bits of size
-    header_len += 1;
+    // Extract initial size (4 bits)
+    let mut size = (first_byte & 0x0F) as usize;
+    let mut shift = 4;
 
-    // Parse varint-style size (continuation if MSB is set)
-    while c & 0x80 != 0 {
-        if header_len >= data.len() {
+    // Check if size encoding spans multiple bytes (if bit 7 is set)
+    let mut index = 1;
+    while (first_byte & 0x80) != 0 {
+        if index >= data.len() {
             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
         }
-        c = data[header_len];
-        size |= ((c & 0x7F) as usize) << shift; // Append the next 7 bits to size
-        shift += 7;  // Move to the next chunk of 7 bits
-        header_len += 1;
+
+        let next_byte = data[index];
+        size |= ((next_byte & 0x7F) as usize) << shift;  // Use 7 bits for size
+        shift += 7;
+        index += 1;
+
+        // Stop when the continuation bit (MSB) is 0
+        if next_byte & 0x80 == 0 {
+            break;
+        }
     }
 
-    // Debug print to verify object type and size
-    println!("Object type: {}, size: {}, header_len: {}", obj_type, size, header_len);
-
+    header_len = index;
     Ok((size, header_len, obj_type))
 }
+
 
 // Write the packfile index (.idx)
 fn write_packfile_index(objects: Vec<(usize, Vec<u8>)>, output_dir: &str) -> io::Result<()> {
