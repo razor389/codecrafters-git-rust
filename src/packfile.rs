@@ -57,7 +57,7 @@ fn decompress_object(compressed_data: &[u8]) -> io::Result<Vec<u8>> {
         Ok(_) => {
             // Print the first 100 bytes of the decompressed data for debugging
             println!("Decompressed object successfully: size = {}", decompressed_data.len());
-            println!("Decompressed data (first 100 bytes): {:?}", &decompressed_data[..100.min(decompressed_data.len())]);
+            println!("Decompressed data (first 200 bytes): {:?}", &decompressed_data[..200.min(decompressed_data.len())]);
 
             Ok(decompressed_data)
         },
