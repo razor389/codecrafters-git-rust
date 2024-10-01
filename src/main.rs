@@ -479,7 +479,6 @@ fn create_commit(tree_sha: &str, message: &str, parent_sha: Option<&str>) -> io:
 }
 
 // Clone the repository from a remote HTTP repository
-// Clone the repository from a remote HTTP repository
 async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     // Check if the target directory already exists
     if Path::new(target_dir).exists() {
@@ -525,32 +524,67 @@ async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str) -> Result<Vec<
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
     println!("Requesting packfile from: {}", upload_pack_url);
 
-    let request_body = format!("0032want {}00000009done\n", head_commit_sha); // Simplified request for demo
-    let client = reqwest::Client::new();
+    // Format the POST body: "want <sha>" followed by "done" to finalize the request
+    let request_body = format!(
+        "0032want {}\n0009done\n", 
+        head_commit_sha
+    );
+    println!("Request body:\n{}", request_body);  // Debug: Print the request body
 
+    // Create the HTTP client and send the request
+    let client = reqwest::Client::new();
     let response = client
         .post(&upload_pack_url)
         .header("Content-Type", "application/x-git-upload-pack-request")
-        .body(Body::from(request_body))
+        .body(request_body)
         .send()
         .await
         .map_err(|err| {
-            io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err))
+            io::Error::new(io::ErrorKind::Other, format!("Failed to send request: {}", err))
         })?;
 
-    if !response.status().is_success() {
+    // Debug: Check the response status and headers
+    let status = response.status();
+    println!("Response status: {}", status);
+    println!("Response headers:\n{:#?}", response.headers());
+
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_else(|_| "Unable to fetch response body".to_string());
+        return Err(io::Error::new(io::ErrorKind::Other, format!("Failed to fetch packfile: HTTP status {}. Response body: {}", status, body)));
+    }
+
+    // Check the content type of the response to ensure it's the right kind of packfile
+    let content_type = response
+        .headers()
+        .get("Content-Type")
+        .and_then(|val| val.to_str().ok())
+        .unwrap_or("");
+    
+    if content_type != "application/x-git-upload-pack-result" {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("Failed to fetch packfile: HTTP status {}", response.status()),
+            format!("Unexpected content type: {}. Expected application/x-git-upload-pack-result", content_type)
         ));
     }
 
+    // Debug: Check the content length of the response
+    if let Some(content_length) = response.content_length() {
+        println!("Content length: {}", content_length);
+    } else {
+        println!("Content length: unknown (chunked response)");
+    }
+
+    // Read the packfile data from the response
     let pack_data = response.bytes().await.map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("Failed to read packfile data: {}", err))
     })?;
 
+    // Debug: Check the size of the downloaded packfile
+    println!("Downloaded packfile size: {} bytes", pack_data.len());
+
     Ok(pack_data.to_vec())
 }
+
 
 // Store the downloaded packfile in the .git/objects/pack directory
 fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
