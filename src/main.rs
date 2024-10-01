@@ -656,9 +656,9 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
     let mut branch_sha: Option<String> = None;
 
     for line in refs_str.lines() {
-        // Skip protocol service lines and length prefixes (e.g., '0000', '001e', etc.)
-        if line.starts_with("0000") || line.starts_with('#') {
-            continue;
+        // Skip protocol service lines and length prefixes (e.g., '001e', '003f', etc.)
+        if line.starts_with("0000") || line.starts_with("00") || line.starts_with('#') {
+            continue; // Skip length-prefixed protocol lines and comments
         }
 
         // Strip the first 4 characters (length prefix) from each line
@@ -679,12 +679,17 @@ fn parse_refs(refs_data: &[u8]) -> Option<String> {
                 let sha = parts[0];
                 let ref_name = parts[1];
 
+                // Ensure we skip invalid refs like "service=git-upload-pack"
+                if sha.len() != 40 {
+                    continue; // Skip any SHA that is not 40 characters long
+                }
+
                 // Debug: Print the extracted ref and SHA
                 println!("Found ref: {}, SHA: {}", ref_name, sha);
 
                 // Check if this ref matches the symbolic HEAD ref (e.g., refs/heads/master)
                 if let Some(ref head_ref_val) = &head_ref {
-                    if ref_name == head_ref_val && sha.len() == 40 {
+                    if ref_name == head_ref_val {
                         println!("Matched symbolic HEAD ref {} to SHA: {}", ref_name, sha);
                         branch_sha = Some(sha.to_string());
                     }
