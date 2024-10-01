@@ -139,7 +139,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         // Read and decompress object data (only for non-delta objects)
         if obj_type < 6 {
             let compressed_data = &pack_data[offset..offset + obj_size];
-            println!("Compressed data (first 20 bytes) at offset {}: {:?}", offset, &compressed_data[..20.min(compressed_data.len())]);
+            println!("Compressed data (first 100 bytes) at offset {}: {:?}", offset, &compressed_data[..100.min(compressed_data.len())]);
 
             // Decompress the object data
             let decompressed_data = match decompress_object(compressed_data) {
