@@ -237,16 +237,16 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     }
 
     let total_objects = read_u32(file)?;
-    println!("total objects: {}", total_objects);
+    //println!("total objects: {}", total_objects);
 
     // Map from offsets to the objects that were read
     let mut read_objects = HashMap::new();
     for obj in 0..total_objects {
-        println!("object_number: {}", obj);
+        //println!("object_number: {}", obj);
         let offset = get_offset(file)?;
         let (object_type, size) = read_type_and_size(file)?;
-        println!("object_type: {}", object_type);
-        println!("offset: {}", offset);
+        //println!("object_type: {}", object_type);
+        //println!("offset: {}", offset);
         let object = match object_type {
             1..=4 => {
                 let object_type = match object_type {
