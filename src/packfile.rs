@@ -300,7 +300,7 @@ fn parse_delta_offset(data: &[u8]) -> io::Result<(usize, usize)> {
         }
 
         if offset_len > 9 {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "Delta offset is toolarge"));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Delta offset is too large"));
         }
     }
 
