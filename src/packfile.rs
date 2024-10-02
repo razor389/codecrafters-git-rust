@@ -5,6 +5,7 @@ use std::{fmt, fs};
 use std::io::{self, Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::str::FromStr;
 use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
 
 use sha1::{Digest, Sha1};
 
@@ -223,6 +224,33 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
     Ok(())
 }
 
+fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
+    let object_hash = object.hash();
+    let object_hash_str = format!("{}", object_hash);
+
+    // Split the hash into two parts: the directory name (first 2 characters) and the file name (remaining 38 characters)
+    let dir_name = &object_hash_str[..2];
+    let file_name = &object_hash_str[2..];
+
+    let object_dir_path = format!("{}/.git/objects/{}", target_dir, dir_name);
+    let object_file_path = format!("{}/{}", object_dir_path, file_name);
+
+    // Create the directory for the object if it doesn't exist
+    fs::create_dir_all(&object_dir_path)?;
+
+    // Compress the object contents using zlib (to mimic Git's object storage format)
+    let mut compressed_data = Vec::new();
+    let mut encoder = ZlibEncoder::new(&mut compressed_data, flate2::Compression::default());
+    encoder.write_all(&object.contents)?;
+    encoder.finish()?;
+
+    // Write the compressed object data to the file
+    let mut file = File::create(&object_file_path)?;
+    file.write_all(&compressed_data)?;
+
+    Ok(())
+}
+
 fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     use ObjectType::*;
 
@@ -240,12 +268,10 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
 
     // Map from offsets to the objects that were read
     let mut read_objects = HashMap::new();
-    for obj in 0..total_objects {
-        //println!("object_number: {}", obj);
+    for _ in 0..total_objects {
         let offset = get_offset(file)?;
         let (object_type, size) = read_type_and_size(file)?;
-        //println!("object_type: {}", object_type);
-        //println!("offset: {}", offset);
+
         let object = match object_type {
             1..=4 => {
                 let object_type = match object_type {
@@ -258,22 +284,23 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
                 Object { object_type, contents }
             },
             6 => {
-                println!("delta  handling");
+                // Handle deltas (not the focus right now)
                 let delta_offset = read_offset_encoding(file)?;
                 let base_offset = offset.checked_sub(delta_offset).unwrap();
-                let delta_start = get_offset(file)?;
                 let object = apply_delta(file, &read_objects[&base_offset])?;
-                seek(file, delta_start)?;
-                read_zlib_stream(file, size)?;
                 object
             },
-            _ => {println!("unexpected obj type"); return Err(make_error(&format!("Unexpected object type {}", object_type)))},
+            _ => return Err(make_error(&format!("Unexpected object type {}", object_type))),
         };
+
+        // Store the object in the .git/objects directory
+        store_git_object(output_dir, &object)?;
+
+        // Add the object to the map to be able to handle deltas later
         read_objects.insert(offset, object);
     }
-    println!("finished loop");
+
     let _pack_checksum: [u8; HASH_BYTES] = read_bytes(file)?;
-    // We should be at the end of the pack file
     let end = at_end_of_stream(file)?;
     assert!(end);
 
