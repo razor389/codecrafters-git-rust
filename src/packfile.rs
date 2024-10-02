@@ -118,7 +118,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
             "Compressed data range: offset = {}, length = {}, bytes = {:?}",
             offset,
             obj_size,
-            &compressed_data[..200.min(compressed_data.len())]
+            &compressed_data[..250.min(compressed_data.len())]
         );
 
         // Decompress the object
