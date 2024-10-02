@@ -92,13 +92,18 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         offset += obj_header_len; // Move past the header
 
-        // Get the compressed data
+        // Get the compressed data starting at the current offset
         let compressed_data = &pack_data[offset..];
-        println!("Compressed data range: offset = {}, length = {}", offset, compressed_data.len());
+        println!(
+            "Compressed data range: offset = {}, length = {}",
+            offset,
+            compressed_data.len()
+        );
 
-        // Decompress the object using zlib
+        // Decompress the object data and track how many bytes were consumed in the compressed stream
         match decompress_object_with_consumed(compressed_data) {
             Ok((decompressed_data, bytes_consumed)) => {
+                // Ensure decompressed data matches the size in the header
                 if decompressed_data.len() != obj_size {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
@@ -143,6 +148,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     println!("Packfile indexed successfully.");
     Ok(())
 }
+
 
 // Function to validate the SHA-1 checksum at the end of the packfile
 fn validate_packfile_checksum(pack_data: &[u8]) -> io::Result<()> {
