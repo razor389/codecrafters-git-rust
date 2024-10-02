@@ -255,7 +255,6 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
                     _ => Tag,
                 };
                 let contents = read_zlib_stream(file, size)?;
-                println!("read stream for non delta object");
                 Object { object_type, contents }
             },
             6 => {
