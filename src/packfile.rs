@@ -226,9 +226,6 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     use ObjectType::*;
 
-    // Seek to the beginning of the file before reading
-    file.seek(SeekFrom::Start(0))?;
-    
     let magic = read_bytes(file)?;
     if magic != *b"PACK" {
         return Err(make_error("Invalid packfile header"));
