@@ -267,7 +267,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
                 read_zlib_stream(file, size)?;
                 object
             },
-            _ => return Err(make_error(&format!("Unexpected object type {}", object_type))),
+            _ => {println!("unexpected obj type"); return Err(make_error(&format!("Unexpected object type {}", object_type)))},
         };
         read_objects.insert(offset, object);
     }
