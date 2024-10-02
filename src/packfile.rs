@@ -53,7 +53,8 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
     let mut offset = 12; // Skip the 12-byte PACK header
     let packfile_data_end = pack_data.len() - 20; // Exclude SHA-1 checksum at the end
-    let mut objects = Vec::new();
+    let mut objects: Vec<(usize, Vec<u8>)> = Vec::new();
+    let mut base_objects: Vec<(usize, Vec<u8>)> = Vec::new(); // Store decompressed objects by offset
 
     println!("Starting to parse objects in the packfile...");
 
@@ -63,6 +64,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
         let obj_offset = offset;
 
         // Parse the object header (get uncompressed size, header length, and type)
+        #[allow(unused_variables)]
         let (obj_size, obj_header_len, obj_type) = match parse_object_header(&pack_data[offset..]) {
             Ok((size, header_len, obj_type)) => {
                 println!(
@@ -83,17 +85,11 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         // Get the compressed data starting at the current offset
         let compressed_data = &pack_data[offset..];
-        // println!(
-        //     "Compressed data range: offset = {}, length = {}",
-        //     offset,
-        //     compressed_data.len()
-        // );
 
-        // Decompress the object data and track how many bytes were consumed in the compressed stream
         match decompress_object_with_consumed(compressed_data) {
-            Ok((decompressed_data, bytes_consumed)) => {
-                // Ensure decompressed data matches the size in the header
-                if decompressed_data.len() != obj_size {
+            Ok((mut decompressed_data, bytes_consumed)) => {
+                // Ensure decompressed data matches the size in the header for regular objects
+                if obj_type != 6 && obj_type != 7 && decompressed_data.len() != obj_size {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!(
@@ -103,15 +99,36 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                     ));
                 }
 
-                // println!(
-                //     "Decompressed object at offset {}: decompressed size = {}, bytes consumed = {}",
-                //     obj_offset,
-                //     decompressed_data.len(),
-                //     bytes_consumed
-                // );
+                // Handle delta objects (types 6 and 7)
+                if obj_type == 6 {
+                    // OBJ_OFS_DELTA (offset delta)
+                    let (delta_offset, delta_offset_len) = parse_delta_offset(&pack_data[offset - obj_header_len..])?;
+                    let base_object_offset = obj_offset - delta_offset;
+                    let base_object = base_objects
+                        .iter()
+                        .find(|(base_offset, _)| *base_offset == base_object_offset)
+                        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Base object not found"))?;
 
-                // Store the decompressed object
-                objects.push((obj_offset, decompressed_data));
+                    println!("Applying offset delta at offset {} with base offset {}", obj_offset, base_object_offset);
+                    decompressed_data = apply_delta(&base_object.1, &decompressed_data)?;
+                } else if obj_type == 7 {
+                    // OBJ_REF_DELTA (reference delta)
+                    let base_sha = &pack_data[offset - obj_header_len..offset - obj_header_len + 20];
+                    let base_object = objects
+                        .iter()
+                        .find(|(_, base_data)| {
+                            let base_sha_computed = compute_sha1_hash(base_data);
+                            &base_sha_computed[..] == base_sha
+                        })
+                        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Base object by SHA-1 not found"))?;
+
+                    println!("Applying reference delta at offset {} with base SHA-1 {:?}", obj_offset, base_sha);
+                    decompressed_data = apply_delta(&base_object.1, &decompressed_data)?;
+                }
+
+                // Store the decompressed object and its offset
+                objects.push((obj_offset, decompressed_data.clone()));
+                base_objects.push((obj_offset, decompressed_data)); // Store in base objects
 
                 // Move to the next object based on the number of compressed bytes consumed
                 offset += bytes_consumed;
@@ -137,6 +154,7 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     println!("Packfile indexed successfully.");
     Ok(())
 }
+
 
 fn decompress_object_with_consumed(compressed_data: &[u8]) -> io::Result<(Vec<u8>, usize)> {
     let mut decoder = ZlibDecoder::new(compressed_data);
@@ -178,6 +196,7 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
     }
 
+    #[allow(unused_assignments)]
     let mut header_len = 1;  // The first byte is always part of the header
     let first_byte = data[0];
 
@@ -220,7 +239,118 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     println!("Parsed object header length: {}", header_len);
     println!("Final size: {}, object type: {}", size, obj_type);
 
+    // Handle delta-based objects (types 6 and 7)
+    match obj_type {
+        6 => {
+            // Offset Delta (OBJ_OFS_DELTA): The next part of the data indicates the base object offset
+            let (delta_offset, delta_offset_len) = parse_delta_offset(&data[header_len..])?;
+            header_len += delta_offset_len;
+            println!("Parsed offset delta object with base offset: {}", delta_offset);
+        }
+        7 => {
+            // Reference Delta (OBJ_REF_DELTA): The next 20 bytes are the base object SHA-1
+            if header_len + 20 > data.len() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Not enough data for reference delta"));
+            }
+            let base_sha = &data[header_len..header_len + 20];
+            header_len += 20;
+            println!("Parsed reference delta object with base SHA-1: {:x?}", base_sha);
+        }
+        _ => { /* For other object types, we don't need special handling */ }
+    }
+
     Ok((size, header_len, obj_type))
+}
+
+// Parse the delta offset for OBJ_OFS_DELTA
+fn parse_delta_offset(data: &[u8]) -> io::Result<(usize, usize)> {
+    let mut offset = 0;
+    let mut offset_len = 0;
+
+    for &byte in data.iter() {
+        offset = (offset << 7) | (byte as usize & 0x7F);
+        offset_len += 1;
+        if byte & 0x80 == 0 {
+            break;
+        }
+    }
+
+    if offset_len == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Failed to parse delta offset"));
+    }
+
+    Ok((offset, offset_len))
+}
+
+// Apply a delta to reconstruct the original object
+fn apply_delta(base_object: &[u8], delta_data: &[u8]) -> io::Result<Vec<u8>> {
+    let mut target = Vec::new();
+
+    // Parse delta sizes
+    let (source_size, mut delta_data) = parse_delta_size(delta_data)?;
+    let (target_size, mut delta_data) = parse_delta_size(delta_data)?;
+
+    if source_size != base_object.len() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Source size mismatch"));
+    }
+
+    // Apply the delta instructions
+    while !delta_data.is_empty() {
+        let opcode = delta_data[0];
+        delta_data = &delta_data[1..];
+
+        if opcode & 0x80 != 0 {
+            // Copy instruction
+            let mut copy_offset = 0;
+            let mut copy_size = 0;
+
+            if opcode & 0x01 != 0 { copy_offset |= delta_data[0] as usize; delta_data = &delta_data[1..]; }
+            if opcode & 0x02 != 0 { copy_offset |= (delta_data[0] as usize) << 8; delta_data = &delta_data[1..]; }
+            if opcode & 0x04 != 0 { copy_offset |= (delta_data[0] as usize) << 16; delta_data = &delta_data[1..]; }
+            if opcode & 0x08 != 0 { copy_offset |= (delta_data[0] as usize) << 24; delta_data = &delta_data[1..]; }
+
+            if opcode & 0x10 != 0 { copy_size |= delta_data[0] as usize; delta_data = &delta_data[1..]; }
+            if opcode & 0x20 != 0 { copy_size |= (delta_data[0] as usize) << 8; delta_data = &delta_data[1..]; }
+            if opcode & 0x40 != 0 { copy_size |= (delta_data[0] as usize) << 16; delta_data = &delta_data[1..]; }
+
+            if copy_size == 0 {
+                copy_size = 0x10000;
+            }
+
+            target.extend_from_slice(&base_object[copy_offset..copy_offset + copy_size]);
+        } else if opcode != 0 {
+            // Insert instruction
+            target.extend_from_slice(&delta_data[..opcode as usize]);
+            delta_data = &delta_data[opcode as usize..];
+        } else {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid delta opcode"));
+        }
+    }
+
+    if target.len() != target_size {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "Target size mismatch after delta application"));
+    }
+
+    Ok(target)
+}
+
+// Parse a delta size (used in both the base object size and target size in delta headers)
+fn parse_delta_size(data: &[u8]) -> io::Result<(usize, &[u8])> {
+    let mut size = 0;
+    let mut shift = 0;
+    let mut index = 0;
+
+    for &byte in data.iter() {
+        size |= ((byte as usize & 0x7F) << shift);
+        shift += 7;
+        index += 1;
+
+        if byte & 0x80 == 0 {
+            break;
+        }
+    }
+
+    Ok((size, &data[index..]))
 }
 
 
