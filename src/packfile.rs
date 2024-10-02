@@ -217,13 +217,14 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 
     // Step 2: Validate and index the packfile
     println!("Starting packfile validation...");
+    
     index_pack_file(&mut pack_file, &pack_dir)?;
     Ok(())
 }
 
 fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     use ObjectType::*;
-
+    println!("got here");
     let magic = read_bytes(file)?;
     if magic != *b"PACK" {
         return Err(make_error("Invalid packfile header"));
