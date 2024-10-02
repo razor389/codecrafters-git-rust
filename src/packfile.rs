@@ -181,39 +181,41 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header is empty"));
     }
 
-    let mut header_len = 1;  // First byte is always part of the header
+    let mut header_len = 1;  // The first byte is always part of the header
     let first_byte = data[0];
 
-    // Extract object type (3 bits)
+    // Extract object type (bits 4-6) from the first byte
     let obj_type = (first_byte >> 4) & 0x07;
 
-    // Extract initial size (4 bits)
+    // Extract initial size (bits 0-3) from the first byte
     let mut size = (first_byte & 0x0F) as usize;
-    let mut shift = 4;
+    let mut shift = 4;  // First 4 bits already used for size
 
     println!("Parsing object header...");
     println!("First byte: {:08b} (binary), 0x{:02x} (hex)", first_byte, first_byte);
     println!("Initial object type: {}", obj_type);
     println!("Initial size (from 4 bits): {}", size);
 
-    // Check if size encoding spans multiple bytes (if bit 7 is set)
+    // Check if the size is encoded across multiple bytes (if bit 7 of the first byte is set)
     let mut index = 1;
-    while (first_byte & 0x80) != 0 {
-        if index >= data.len() {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
-        }
+    if (first_byte & 0x80) != 0 {
+        // The first byte has MSB set, so continue reading additional bytes for size
+        while index < data.len() {
+            let next_byte = data[index];
+            println!("Byte {}: {:08b} (binary), 0x{:02x} (hex)", index, next_byte, next_byte);
+            size |= ((next_byte & 0x7F) as usize) << shift;  // Extract the next 7 bits for the size
+            shift += 7;  // Increment shift for the next 7 bits
+            index += 1;
 
-        let next_byte = data[index];
-        println!("Byte {}: {:08b} (binary), 0x{:02x} (hex)", index, next_byte, next_byte);
-        size |= ((next_byte & 0x7F) as usize) << shift;  // Use 7 bits for size
-        shift += 7;
-        index += 1;
+            // Stop when we encounter a byte with MSB (bit 7) unset
+            if next_byte & 0x80 == 0 {
+                break;
+            }
 
-        println!("Updated size: {}", size);
-
-        // Stop when the continuation bit (MSB) is 0
-        if next_byte & 0x80 == 0 {
-            break;
+            // Ensure we don't exceed the data length
+            if index >= data.len() {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Object header exceeds data length"));
+            }
         }
     }
 
@@ -223,6 +225,7 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
 
     Ok((size, header_len, obj_type))
 }
+
 
 // Write the packfile index (.idx)
 fn write_packfile_index(objects: Vec<(usize, Vec<u8>)>, output_dir: &str) -> io::Result<()> {
