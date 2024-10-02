@@ -210,15 +210,16 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
     let mut pack_file = fs::File::create(&pack_file_path)?;
     pack_file.write_all(&pack_data)?;
 
-    println!("Packfile stored at: {}", pack_file_path);
-
     // Debug: Log the size of the downloaded packfile
     println!("Packfile downloaded and stored at: {} (size: {} bytes)", pack_file_path, pack_data.len());
 
     // Step 2: Validate and index the packfile
     println!("Starting packfile validation...");
+    // Open the file again for reading (using the same path)
+    let mut pack_file_for_reading = File::open(&pack_file_path)?;
+
     
-    index_pack_file(&mut pack_file, &pack_dir)?;
+    index_pack_file(&mut pack_file_for_reading, &pack_dir)?;
     Ok(())
 }
 
