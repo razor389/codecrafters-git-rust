@@ -39,19 +39,33 @@ impl Display for Hash {
     }
 }
 
-fn hex_to_hash(hex_hash: &[u8]) -> Option<Hash> {
-    let mut bytes = [0; HASH_BYTES];
-    hex_hash
-        .chunks(2)
-        .enumerate()
-        .try_for_each(|(i, chunk)| {
-            let val = u8::from_str_radix(&String::from_utf8_lossy(chunk), 16).ok()?;
-            bytes[i] = val;
-            Some(())
-        })?;
+fn hex_char_value(hex_char: u8) -> Option<u8> {
+    match hex_char {
+      b'0'..=b'9' => Some(hex_char - b'0'),
+      b'a'..=b'f' => Some(hex_char - b'a' + 10),
+      _ => None,
+    }
+  }
+  
+  fn hex_to_hash(hex_hash: &[u8]) -> Option<Hash> {
+    const BITS_PER_CHAR: usize = 4;
+    const CHARS_PER_BYTE: usize = 8 / BITS_PER_CHAR;
+  
+    let byte_chunks = hex_hash.chunks_exact(CHARS_PER_BYTE);
+    if !byte_chunks.remainder().is_empty() {
+      return None
+    }
+  
+    let bytes = byte_chunks.map(|hex_digits| {
+      hex_digits.iter().try_fold(0, |value, &byte| {
+        let char_value = hex_char_value(byte)?;
+        Some(value << BITS_PER_CHAR | char_value)
+      })
+    }).collect::<Option<Vec<_>>>()?;
+    let bytes = <[u8; HASH_BYTES]>::try_from(bytes).ok()?;
     Some(Hash(bytes))
-}
-
+  }
+  
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ObjectType {
     Commit,
@@ -69,21 +83,21 @@ struct Object {
 impl Object {
     fn hash(&self) -> Hash {
         use sha1::digest::Update;
-        let object_type_str = match self.object_type {
-            ObjectType::Commit => COMMIT_OBJECT_TYPE,
-            ObjectType::Tree => TREE_OBJECT_TYPE,
-            ObjectType::Blob => BLOB_OBJECT_TYPE,
-            ObjectType::Tag => TAG_OBJECT_TYPE,
-        };
-        let data = [
-            object_type_str,
-            b" ",
-            self.contents.len().to_string().as_bytes(),
-            b"\0",
-            &self.contents,
-        ]
-        .concat();
-        Hash(Sha1::new().chain(data).finalize().into())
+        use ObjectType::*;
+
+        let hash = Sha1::new()
+        .chain(match self.object_type {
+            Commit => COMMIT_OBJECT_TYPE,
+            Tree => TREE_OBJECT_TYPE,
+            Blob => BLOB_OBJECT_TYPE,
+            Tag => TAG_OBJECT_TYPE,
+        })
+        .chain(b" ")
+        .chain(self.contents.len().to_string())
+        .chain(b"\0")
+        .chain(&self.contents)
+        .finalize();
+        Hash(<[u8; HASH_BYTES]>::try_from(hash.as_slice()).unwrap())
     }
 }
 
@@ -107,13 +121,29 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let object_hash = object.hash();
     let object_hash_str = format!("{}", object_hash);
 
+    // Log the object type and hash
+    println!(
+        "Storing object: type = {:?}, hash = {}",
+        object.object_type, object_hash_str
+    );
+
+    // Split the hash into two parts: the directory name (first 2 characters) and the file name (remaining 38 characters)
     let dir_name = &object_hash_str[..2];
     let file_name = &object_hash_str[2..];
+
     let object_dir_path = format!("{}/{}", target_dir, dir_name);
     let object_file_path = format!("{}/{}", object_dir_path, file_name);
 
+    // Log the correct path where the object will be stored
+    println!(
+        "Object will be stored at: {} (directory: {}, file: {})",
+        object_file_path, object_dir_path, file_name
+    );
+
+    // Create the directory for the object if it doesn't exist
     fs::create_dir_all(&object_dir_path)?;
 
+    // Create the full object data (header + contents)
     let mut object_data = Vec::new();
     let object_type_str = match object.object_type {
         ObjectType::Commit => "commit",
@@ -121,17 +151,26 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
         ObjectType::Blob => "blob",
         ObjectType::Tag => "tag",
     };
+    
+    // Write the header (object type + size)
     let header = format!("{} {}\0", object_type_str, object.contents.len());
     object_data.extend_from_slice(header.as_bytes());
+
+    // Write the contents
     object_data.extend_from_slice(&object.contents);
 
+    // Compress the full object (header + contents) using zlib
     let mut compressed_data = Vec::new();
     let mut encoder = ZlibEncoder::new(&mut compressed_data, Compression::default());
-    encoder.write_all(&object_data)?;
-    encoder.finish()?;
+    encoder.write_all(&object_data)?;  // Now compressing the entire object with the header
+    encoder.finish()?;  // Complete the compression
 
+    // Write the compressed object data to the file
     let mut file = File::create(&object_file_path)?;
     file.write_all(&compressed_data)?;
+
+    // Log that the object has been successfully stored
+    println!("Object successfully stored at: {}", object_file_path);
 
     Ok(())
 }
