@@ -8,13 +8,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
-use packfile::store_packfile;
+use packfile::{store_packfile, Hash};
 use reqwest::Body;
 use sha1::{Sha1, Digest};
-use git2::{Repository, Oid};
 //use reqwest::Url;
 use tokio;
 mod packfile;
+
+#[derive(Debug)]
+struct TreeEntry {
+    mode: String,
+    object_type: String,
+    sha: String,
+    name: String,
+}
 
 
 #[tokio::main]
@@ -275,8 +282,21 @@ fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
         // Skip the header
         let object_data = &decompressed_data[null_byte_pos + 1..];
 
-        // Now process the tree entries in the object_data
-        parse_tree_entries(object_data, name_only)?;
+        // Now process the tree entries in the object_data using parse_tree_entries
+        let tree_entries = parse_tree_entries(object_data, name_only)?;
+
+        // Handle output based on the `name_only` flag
+        if name_only {
+            for entry in tree_entries {
+                // Print only the name
+                println!("{}", entry.name);
+            }
+        } else {
+            for entry in tree_entries {
+                // Print full entry: "<mode> <type> <sha> <name>"
+                println!("{} {} {}    {}", entry.mode, entry.object_type, entry.sha, entry.name);
+            }
+        }
     } else {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid tree object format"));
     }
@@ -284,8 +304,11 @@ fn list_tree(tree_sha: &str, name_only: bool) -> io::Result<()> {
     Ok(())
 }
 
+
 // Function to parse tree entries and output either full or name-only
-fn parse_tree_entries(object_data: &[u8], name_only: bool) -> io::Result<()> {
+// Function to parse tree entries and return a vector of TreeEntry structs
+fn parse_tree_entries(object_data: &[u8], name_only: bool) -> io::Result<Vec<TreeEntry>> {
+    let mut entries = Vec::new();
     let mut i = 0;
 
     while i < object_data.len() {
@@ -321,13 +344,21 @@ fn parse_tree_entries(object_data: &[u8], name_only: bool) -> io::Result<()> {
         if name_only {
             println!("{}", name);
         } else {
-            // Full output: "<mode> <type> <sha> <name>"
             println!("{} {} {}    {}", mode, object_type, sha1_str, name);
         }
+
+        // Add the parsed entry to the vector
+        entries.push(TreeEntry {
+            mode: mode.to_string(),
+            object_type: object_type.to_string(),
+            sha: sha1_str,
+            name: name.to_string(),
+        });
     }
 
-    Ok(())
+    Ok(entries)
 }
+
 
 fn write_tree() -> io::Result<String> {
     // Get the current directory
@@ -484,6 +515,7 @@ fn create_commit(tree_sha: &str, message: &str, parent_sha: Option<&str>) -> io:
 }
 
 // Clone the repository from a remote HTTP repository
+// Clone the repository from a remote HTTP repository
 async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     // Check if the target directory already exists
     if Path::new(target_dir).exists() {
@@ -511,19 +543,18 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     // Step 4: Request the packfile via POST to git-upload-pack
     let pack_data = fetch_packfile(remote_repo, &head_commit_sha, &capabilities).await?;
 
-    // Step 5: Store the packfile in the .git directory
-    store_packfile(target_dir, pack_data)?;
+    // Step 5: Store the packfile in the .git directory and get the HEAD commit hash
+    let head_commit_hash = store_packfile(target_dir, pack_data)?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HEAD commit not found in packfile"))?;
 
-    // Step 6: Verify repository and objects
-    verify_repository_and_objects(target_dir, &head_commit_sha)?;
-
-    // Step 7: Write the working directory files (checkout the HEAD commit)
-    checkout_head_commit(target_dir, &head_commit_sha)?;
+    // Step 6: Unpack the HEAD commit and write files to the working directory
+    unpack_head_commit(target_dir, head_commit_hash)?;
 
     println!("Repository cloned successfully to {}", target_dir);
 
     Ok(())
 }
+
 
 async fn fetch_packfile(remote_repo: &str, head_commit_sha: &str, capabilities: &str) -> Result<Vec<u8>, io::Error> {
     let upload_pack_url = format!("{}/git-upload-pack", remote_repo);
@@ -631,61 +662,6 @@ fn process_negotiation_phase(body_bytes: Bytes) -> io::Result<Vec<u8>> {
     Ok(packfile_data)
 }
 
-// Check out the HEAD commit and write files to the working directory
-fn checkout_head_commit(target_dir: &str, head_commit_sha: &str) -> io::Result<()> {
-    println!("got here");
-    let repo = Repository::open(target_dir).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to open repository: {}", err))
-    })?;
-
-    // Convert the SHA-1 string to an Oid
-    let oid = Oid::from_str(head_commit_sha).map_err(|err| {
-        io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid commit SHA: {}", err))
-    })?;
-
-    // Find the commit object by OID
-    let commit = repo.find_commit(oid).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to find commit: {}", err))
-    })?;
-
-    // Get the tree (directory structure) associated with the commit
-    let tree = commit.tree().map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to find tree: {}", err))
-    })?;
-
-    // Perform the checkout to update the working directory
-    repo.checkout_tree(tree.as_object(), None).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to checkout tree: {}", err))
-    })?;
-
-    // Update HEAD to point to the checked-out commit
-    repo.set_head_detached(oid).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to set HEAD: {}", err))
-    })?;
-
-    println!("Checked out HEAD commit: {}", head_commit_sha);
-    Ok(())
-}
-
-fn verify_repository_and_objects(target_dir: &str, head_commit_sha: &str) -> io::Result<()> {
-    let repo = Repository::open(target_dir).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to open repository: {}", err))
-    })?;
-
-    // Check if the head commit exists in the repository
-    let oid = git2::Oid::from_str(head_commit_sha).map_err(|err| {
-        io::Error::new(io::ErrorKind::InvalidInput, format!("Invalid commit SHA: {}", err))
-    })?;
-
-    let _commit = repo.find_commit(oid).map_err(|err| {
-        io::Error::new(io::ErrorKind::Other, format!("Failed to find commit: {}", err))
-    })?;
-
-    println!("Verified repository and found HEAD commit: {}", head_commit_sha);
-    Ok(())
-}
-
-
 // Fetch the refs from the remote repository
 async fn fetch_refs(repo_url: &str) -> Result<Vec<u8>, io::Error> {
     println!("Fetching refs from: {}", repo_url); // Debug: print the URL being fetched
@@ -777,4 +753,110 @@ fn parse_refs(refs_data: &[u8]) -> Option<(String, String)> {
 
     println!("HEAD ref not found.");
     None
+}
+
+pub fn unpack_head_commit(target_dir: &str, head_commit_sha: Hash) -> io::Result<()> {
+    // Step 1: Locate the commit object in .git/objects
+    let commit_object = find_git_object(target_dir, &head_commit_sha)?;
+
+    // Step 2: Parse the commit object to get the tree SHA
+    let commit_content = parse_git_object(commit_object)?;
+    let tree_sha = parse_commit_tree_sha(&commit_content)?;
+
+    println!("Tree SHA from HEAD commit: {}", tree_sha);
+
+    // Step 3: Traverse the tree and restore the directory structure
+    restore_tree(target_dir, &tree_sha)?;
+
+    Ok(())
+}
+
+fn restore_tree(target_dir: &str, tree_sha: &str) -> io::Result<()> {
+    println!("Restoring tree: {}", tree_sha);
+
+    // Convert tree_sha from &str to Hash
+    let tree_hash: Hash = tree_sha.parse()?;
+
+    // Locate the tree object in .git/objects
+    let tree_object = find_git_object(target_dir, &tree_hash)?;
+    let tree_content = parse_git_object(tree_object)?;
+
+    // Use the updated parse_tree_entries function to parse the tree
+    let tree_entries = parse_tree_entries(&tree_content, false)?;
+
+    // Traverse and restore the directory structure
+    for entry in tree_entries {
+        match entry.object_type.as_str() {
+            "tree" => {
+                // If it's a directory, recursively restore it
+                let dir_path = format!("{}/{}", target_dir, entry.name);
+                fs::create_dir_all(&dir_path)?;
+
+                // Convert entry.sha from &str to Hash and recursively restore the subtree
+                let entry_hash: Hash = entry.sha.parse()?;
+                restore_tree(&dir_path, &entry_hash.to_string())?;
+            }
+            "blob" => {
+                // If it's a file (blob), restore it to the working directory
+                let file_path = format!("{}/{}", target_dir, entry.name);
+
+                // Convert entry.sha from &str to Hash
+                let entry_hash: Hash = entry.sha.parse()?;
+                let blob_object = find_git_object(target_dir, &entry_hash)?;
+                let blob_content = parse_git_object(blob_object)?;
+
+                fs::write(&file_path, blob_content)?;
+                println!("Restored file: {}", file_path);
+            }
+            _ => {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown object type in tree"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+fn find_git_object(target_dir: &str, hash: &Hash) -> io::Result<Vec<u8>> {
+    let hash_str = format!("{}", hash);
+    let dir = &hash_str[..2];
+    let file = &hash_str[2..];
+
+    let object_path = format!("{}/.git/objects/{}/{}", target_dir, dir, file);
+    if !Path::new(&object_path).exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "Object not found"));
+    }
+
+    // Read the compressed object from the file
+    let compressed_data = fs::read(&object_path)?;
+
+    // Decompress the object using zlib
+    let mut decoder = ZlibDecoder::new(&compressed_data[..]);
+    let mut decompressed_data = Vec::new();
+    decoder.read_to_end(&mut decompressed_data)?;
+
+    Ok(decompressed_data)
+}
+
+
+fn parse_commit_tree_sha(commit_content: &[u8]) -> io::Result<String> {
+    // The commit content contains the tree SHA as "tree <SHA1>\n"
+    let content_str = String::from_utf8_lossy(commit_content);
+    for line in content_str.lines() {
+        if line.starts_with("tree ") {
+            return Ok(line[5..].to_string());
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::InvalidData, "Tree SHA not found in commit"))
+}
+
+
+fn parse_git_object(data: Vec<u8>) -> io::Result<Vec<u8>> {
+    // Skip the object header and return the actual contents
+    if let Some(null_pos) = data.iter().position(|&b| b == 0) {
+        Ok(data[null_pos + 1..].to_vec())  // Skip the null byte
+    } else {
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid git object format"))
+    }
 }
