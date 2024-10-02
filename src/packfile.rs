@@ -20,7 +20,7 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 
     // Step 2: Validate and index the packfile
     println!("Starting packfile validation...");
-    index_packfile(pack_data, &pack_dir)?;
+    //index_packfile(pack_data, &pack_dir)?;
 
     Ok(())
 }
