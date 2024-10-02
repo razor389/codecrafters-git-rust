@@ -274,11 +274,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     }
     println!("finished loop");
     let _pack_checksum: [u8; HASH_BYTES] = read_bytes(file)?;
-
-    // Write index
-    write_packfile_index(read_objects, output_dir)?;
-
-        // We should be at the end of the pack file
+    // We should be at the end of the pack file
     let end = at_end_of_stream(file)?;
     assert!(end);
 
@@ -382,54 +378,3 @@ fn apply_delta_instruction<R: Read>(stream: &mut R, base: &[u8], result: &mut Ve
 }
 
 
-// Write the packfile index (.idx)
-fn write_packfile_index(objects: HashMap<u64, Object>, output_dir: &str) -> io::Result<()> {
-    let idx_file_path = format!("{}/packfile.idx", output_dir);
-    let mut idx_file = fs::File::create(&idx_file_path)?;
-
-    // Write the index header (magic number + version)
-    idx_file.write_all(&[0xff, 0x74, 0x4f, 0x63])?; // Magic number
-    idx_file.write_all(&[0, 0, 0, 2])?; // Version number
-
-    let mut fanout = [0u32; 256];
-    let mut sha1_list = Vec::new();
-    let mut offsets = Vec::new();
-
-    // For each object, compute SHA-1 hash and determine its offset
-    for (&offset, object) in objects.iter() {
-        let sha1 = object.hash().0.to_vec();
-        fanout[sha1[0] as usize] += 1;
-        sha1_list.push(sha1);
-        offsets.push(offset);
-    }
-
-    // Compute the fanout table
-    for i in 1..256 {
-        fanout[i] += fanout[i - 1];
-    }
-
-    // Write the fanout table
-    for entry in &fanout {
-        idx_file.write_all(&entry.to_be_bytes())?;
-    }
-
-    // Sort and write the SHA-1 hashes
-    sha1_list.sort();
-    for sha1 in sha1_list {
-        idx_file.write_all(&sha1)?;
-    }
-
-    // Write the object offsets
-    for offset in offsets {
-        idx_file.write_all(&(offset as u32).to_be_bytes())?;
-    }
-
-    Ok(())
-}
-
-// Compute the SHA-1 hash of the object
-fn compute_sha1_hash(data: &[u8]) -> Vec<u8> {
-    let mut hasher = Sha1::new();
-    hasher.update(data);
-    hasher.finalize().to_vec()
-}
