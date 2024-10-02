@@ -265,6 +265,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
                 let object = apply_delta(file, &read_objects[&base_offset])?;
                 seek(file, delta_start)?;
                 read_zlib_stream(file, size)?;
+                println!("read stream for delta object");
                 object
             },
             _ => return Err(make_error(&format!("Unexpected object type {}", object_type))),
