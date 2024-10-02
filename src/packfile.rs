@@ -103,12 +103,12 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                     ));
                 }
 
-                println!(
-                    "Decompressed object at offset {}: decompressed size = {}, bytes consumed = {}",
-                    obj_offset,
-                    decompressed_data.len(),
-                    bytes_consumed
-                );
+                // println!(
+                //     "Decompressed object at offset {}: decompressed size = {}, bytes consumed = {}",
+                //     obj_offset,
+                //     decompressed_data.len(),
+                //     bytes_consumed
+                // );
 
                 // Store the decompressed object
                 objects.push((obj_offset, decompressed_data));
