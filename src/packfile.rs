@@ -105,13 +105,28 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                     // OBJ_OFS_DELTA (offset delta)
                     let (delta_offset, delta_offset_len) = parse_delta_offset(&pack_data[offset - obj_header_len..])?;
                     let base_object_offset = obj_offset - delta_offset;
+
+                    // DEBUG: Output more information about the base object offset
+                    println!(
+                        "Applying offset delta at offset {}. Base object should be at offset: {}",
+                        obj_offset, base_object_offset
+                    );
+
                     let base_object = objects
                         .iter()
-                        .find(|(base_offset, _)| *base_offset == base_object_offset)
-                        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Base object not found"))?;
+                        .find(|(base_offset, _)| *base_offset == base_object_offset);
 
-                    println!("Applying offset delta at offset {} with base offset {}", obj_offset, base_object_offset);
-                    decompressed_data = apply_delta(&base_object.1, &decompressed_data)?;
+                    if let Some(base_object) = base_object {
+                        println!("Base object found at offset {}. Applying delta...", base_object_offset);
+                        decompressed_data = apply_delta(&base_object.1, &decompressed_data)?;
+                    } else {
+                        // DEBUG: Output an error when the base object is not found
+                        println!("Error: Base object not found at offset {}", base_object_offset);
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            format!("Base object not found at offset {}", base_object_offset)
+                        ));
+                    }
                 } else if obj_type == 7 {
                     // OBJ_REF_DELTA (reference delta)
                     let base_sha = &pack_data[offset - obj_header_len..offset - obj_header_len + 20];
@@ -120,11 +135,18 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
                         .find(|(_, base_data)| {
                             let base_sha_computed = compute_sha1_hash(base_data);
                             &base_sha_computed[..] == base_sha
-                        })
-                        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "Base object by SHA-1 not found"))?;
+                        });
 
-                    println!("Applying reference delta at offset {} with base SHA-1 {:?}", obj_offset, base_sha);
-                    decompressed_data = apply_delta(&base_object.1, &decompressed_data)?;
+                    if let Some(base_object) = base_object {
+                        println!("Base object found by SHA-1. Applying reference delta...");
+                        decompressed_data = apply_delta(&base_object.1, &decompressed_data)?;
+                    } else {
+                        println!("Error: Base object by SHA-1 not found");
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Base object by SHA-1 not found".to_string(),
+                        ));
+                    }
                 }
 
                 // Store the decompressed object and its offset
