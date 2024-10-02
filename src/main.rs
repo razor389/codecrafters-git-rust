@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::sync::Arc;
 use bytes::Bytes;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -167,7 +166,10 @@ async fn main() {
             let remote_repo = &args[2];
             let target_dir = &args[3];
 
-           clone_repo(remote_repo, target_dir).await; 
+           match clone_repo(remote_repo, target_dir).await{
+                Ok(()) => println!("cloned repo"),
+                Err(e) => eprintln!("error cloning repo: {}", e),
+           }
         }
 
         _ => {
