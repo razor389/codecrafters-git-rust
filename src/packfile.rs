@@ -227,7 +227,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
 
     // Seek to the beginning of the file before reading
     file.seek(SeekFrom::Start(0))?;
-    println!("got here");
+    
     let magic = read_bytes(file)?;
     if magic != *b"PACK" {
         return Err(make_error("Invalid packfile header"));
