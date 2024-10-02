@@ -284,25 +284,29 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     Ok((size, header_len, obj_type))
 }
 
-// Parse the delta offset for OBJ_OFS_DELTA
 fn parse_delta_offset(data: &[u8]) -> io::Result<(usize, usize)> {
-    let mut offset = 0;
+    let mut offset = 0usize;
     let mut offset_len = 0;
-
-    for &byte in data.iter() {
-        offset = (offset << 7) | (byte as usize & 0x7F);
+    
+    for (i, &byte) in data.iter().enumerate() {
+        println!("Parsing byte {}: {:08b} (binary), 0x{:02x} (hex)", i + 1, byte, byte);
+        offset = (offset << 7) | (byte as usize & 0x7F);  // Mask off the high bit
         offset_len += 1;
+
+        println!("Current offset after byte {}: {}", i + 1, offset);
+
         if byte & 0x80 == 0 {
-            break;
+            return Ok((offset, offset_len));
+        }
+
+        if offset_len > 9 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "Delta offset is too large"));
         }
     }
 
-    if offset_len == 0 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Failed to parse delta offset"));
-    }
-
-    Ok((offset, offset_len))
+    Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Failed to parse delta offset"))
 }
+
 
 // Apply a delta to reconstruct the original object
 fn apply_delta(base_object: &[u8], delta_data: &[u8]) -> io::Result<Vec<u8>> {
