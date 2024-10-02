@@ -213,6 +213,11 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let object_hash = object.hash();
     let object_hash_str = format!("{}", object_hash);
+    // Log the object type and hash
+    println!(
+        "Storing object: type = {:?}, hash = {}",
+        object.object_type, object_hash_str
+    );
 
     // Split the hash into two parts: the directory name (first 2 characters) and the file name (remaining 38 characters)
     let dir_name = &object_hash_str[..2];
@@ -221,6 +226,12 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let object_dir_path = format!("{}/.git/objects/{}", target_dir, dir_name);
     let object_file_path = format!("{}/{}", object_dir_path, file_name);
 
+    // Log the path where the object will be stored
+    println!(
+        "Object will be stored at: {} (directory: {}, file: {})",
+        object_file_path, object_dir_path, file_name
+    );
+    
     // Create the directory for the object if it doesn't exist
     fs::create_dir_all(&object_dir_path)?;
 
