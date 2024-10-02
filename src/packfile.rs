@@ -245,7 +245,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
         println!("object number: {}", obj);
         let offset = get_offset(file)?;
         let (object_type, size) = read_type_and_size(file)?;
-        println!("object type: {}", object_type);
+        println!("object_type: {}", object_type);
         println!("offset: {}", offset);
         let object = match object_type {
             1..=4 => {
