@@ -188,7 +188,6 @@ fn read_type_and_size<R: Read>(stream: &mut R) -> io::Result<(u8, usize)> {
 }
   
   
-// Store the downloaded packfile and index it manually
 pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
     let pack_dir = format!("{}/.git/objects/pack", target_dir);
     fs::create_dir_all(&pack_dir)?;
@@ -203,13 +202,17 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 
     // Step 2: Validate and index the packfile
     println!("Starting packfile validation...");
-    // Open the file again for reading (using the same path)
+    
     let mut pack_file_for_reading = File::open(&pack_file_path)?;
 
-    
-    index_pack_file(&mut pack_file_for_reading, &pack_dir)?;
+    // Fix the directory passed to `index_pack_file`:
+    // Here we pass `target_dir/.git/objects` to ensure objects are stored correctly.
+    let git_objects_dir = format!("{}/.git/objects", target_dir);
+    index_pack_file(&mut pack_file_for_reading, &git_objects_dir)?;
+
     Ok(())
 }
+
 
 fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let object_hash = object.hash();
