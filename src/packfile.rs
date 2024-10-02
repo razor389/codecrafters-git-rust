@@ -83,11 +83,11 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
         // Get the compressed data starting at the current offset
         let compressed_data = &pack_data[offset..];
-        println!(
-            "Compressed data range: offset = {}, length = {}",
-            offset,
-            compressed_data.len()
-        );
+        // println!(
+        //     "Compressed data range: offset = {}, length = {}",
+        //     offset,
+        //     compressed_data.len()
+        // );
 
         // Decompress the object data and track how many bytes were consumed in the compressed stream
         match decompress_object_with_consumed(compressed_data) {
