@@ -259,6 +259,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
                 Object { object_type, contents }
             },
             6 => {
+                println!("delta handling");
                 let delta_offset = read_offset_encoding(file)?;
                 let base_offset = offset.checked_sub(delta_offset).unwrap();
                 let delta_start = get_offset(file)?;
