@@ -7,6 +7,7 @@ use std::str::FromStr;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 
+use flate2::Compression;
 use sha1::{Digest, Sha1};
 
 const HASH_BYTES: usize = 20;
@@ -213,6 +214,7 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let object_hash = object.hash();
     let object_hash_str = format!("{}", object_hash);
+
     // Log the object type and hash
     println!(
         "Storing object: type = {:?}, hash = {}",
@@ -223,30 +225,35 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let dir_name = &object_hash_str[..2];
     let file_name = &object_hash_str[2..];
 
+    // Fix the object directory path (correctly append ".git/objects")
     let object_dir_path = format!("{}/.git/objects/{}", target_dir, dir_name);
     let object_file_path = format!("{}/{}", object_dir_path, file_name);
 
-    // Log the path where the object will be stored
+    // Log the correct path where the object will be stored
     println!(
         "Object will be stored at: {} (directory: {}, file: {})",
         object_file_path, object_dir_path, file_name
     );
-    
+
     // Create the directory for the object if it doesn't exist
     fs::create_dir_all(&object_dir_path)?;
 
     // Compress the object contents using zlib (to mimic Git's object storage format)
     let mut compressed_data = Vec::new();
-    let mut encoder = ZlibEncoder::new(&mut compressed_data, flate2::Compression::default());
+    let mut encoder = ZlibEncoder::new(&mut compressed_data, Compression::default());
     encoder.write_all(&object.contents)?;
-    encoder.finish()?;
+    encoder.finish()?; // Complete the compression
 
     // Write the compressed object data to the file
     let mut file = File::create(&object_file_path)?;
     file.write_all(&compressed_data)?;
 
+    // Log that the object has been successfully stored
+    println!("Object successfully stored at: {}", object_file_path);
+
     Ok(())
 }
+
 
 fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     use ObjectType::*;
