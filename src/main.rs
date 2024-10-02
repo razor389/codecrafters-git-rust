@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::sync::Arc;
 use bytes::Bytes;
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -16,8 +17,25 @@ use git2::{Repository, Oid};
 use tokio;
 mod packfile;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+// Global clone state to track completion
+pub struct CloneState {
+    pub in_progress: AtomicBool,
+}
+
+impl CloneState {
+    pub fn new() -> Self {
+        CloneState {
+            in_progress: AtomicBool::new(false),
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    let clone_state = Arc::new(CloneState::new());
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
@@ -38,6 +56,12 @@ async fn main() {
             // Ensure correct usage
             if args.len() != 4 || args[2] != "-p" {
                 eprintln!("Usage: cat-file -p <blob_sha>");
+                return;
+            }
+
+            // Check if cloning is in progress
+            if clone_state.in_progress.load(Ordering::SeqCst) {
+                eprintln!("Repository is still cloning. Please wait until cloning is complete.");
                 return;
             }
 
@@ -164,9 +188,21 @@ async fn main() {
 
             let remote_repo = &args[2];
             let target_dir = &args[3];
-            match clone_repo(remote_repo, target_dir).await {
-                Ok(_) => println!("Cloned repository into {}", target_dir),
-                Err(e) => eprintln!("Error: {}", e),
+
+            // Mark cloning as in progress
+            clone_state.in_progress.store(true, Ordering::SeqCst);
+
+            match clone_repo(remote_repo, target_dir, Arc::clone(&clone_state)).await {
+                Ok(_) => {
+                    // Mark cloning as complete
+                    clone_state.in_progress.store(false, Ordering::SeqCst);
+                    println!("Cloned repository into {}", target_dir);
+                }
+                Err(e) => {
+                    // On error, reset the flag
+                    clone_state.in_progress.store(false, Ordering::SeqCst);
+                    eprintln!("Error: {}", e);
+                }
             }
         }
 
@@ -482,7 +518,7 @@ fn create_commit(tree_sha: &str, message: &str, parent_sha: Option<&str>) -> io:
 }
 
 // Clone the repository from a remote HTTP repository
-async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
+async fn clone_repo(remote_repo: &str, target_dir: &str, clone_state: Arc<CloneState>) -> io::Result<()> {
     // Check if the target directory already exists
     if Path::new(target_dir).exists() {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, "Target directory already exists"));
@@ -519,6 +555,10 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     checkout_head_commit(target_dir, &head_commit_sha)?;
 
     println!("Repository cloned successfully to {}", target_dir);
+
+    // Mark the cloning as completed
+    clone_state.in_progress.store(false, Ordering::SeqCst);
+
     Ok(())
 }
 
