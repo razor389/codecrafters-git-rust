@@ -201,7 +201,7 @@ fn read_type_and_size<R: Read>(stream: &mut R) -> io::Result<(u8, usize)> {
   
   
 // Store the downloaded packfile and index it manually
-pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
+pub async fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
     let pack_dir = format!("{}/.git/objects/pack", target_dir);
     fs::create_dir_all(&pack_dir)?;
 

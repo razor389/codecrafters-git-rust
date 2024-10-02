@@ -510,7 +510,7 @@ async fn clone_repo(remote_repo: &str, target_dir: &str) -> io::Result<()> {
     let pack_data = fetch_packfile(remote_repo, &head_commit_sha, &capabilities).await?;
 
     // Step 5: Store the packfile in the .git directory
-    store_packfile(target_dir, pack_data)?;
+    store_packfile(target_dir, pack_data).await?;
 
     // Step 6: Verify repository and objects
     verify_repository_and_objects(target_dir, &head_commit_sha)?;
