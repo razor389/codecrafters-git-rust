@@ -217,7 +217,7 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
         // The first byte has MSB set, so continue reading additional bytes for size
         while index < data.len() {
             let next_byte = data[index];
-            println!("Byte {}: {:08b} (binary), 0x{:02x} (hex)", index, next_byte, next_byte);
+            println!("Byte {}: {:08b} (binary), 0x{:02x} (hex)", index+1, next_byte, next_byte);
             size |= ((next_byte & 0x7F) as usize) << shift;  // Extract the next 7 bits for the size
             shift += 7;  // Increment shift for the next 7 bits
             index += 1;
