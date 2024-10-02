@@ -213,7 +213,6 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
     Ok(())
 }
 
-
 fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let object_hash = object.hash();
     let object_hash_str = format!("{}", object_hash);
@@ -228,8 +227,8 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let dir_name = &object_hash_str[..2];
     let file_name = &object_hash_str[2..];
 
-    // Fix the object directory path (correctly append ".git/objects")
-    let object_dir_path = format!("{}/.git/objects/{}", target_dir, dir_name);
+    // Do not prepend ".git/objects" again, `target_dir` already points to ".git/objects"
+    let object_dir_path = format!("{}/{}", target_dir, dir_name);
     let object_file_path = format!("{}/{}", object_dir_path, file_name);
 
     // Log the correct path where the object will be stored
@@ -256,7 +255,6 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
 
     Ok(())
 }
-
 
 fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     use ObjectType::*;
