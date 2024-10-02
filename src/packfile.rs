@@ -20,7 +20,7 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 
     // Step 2: Validate and index the packfile
     println!("Starting packfile validation...");
-    //index_packfile(pack_data, &pack_dir)?;
+    index_packfile(pack_data, &pack_dir)?;
 
     Ok(())
 }
@@ -261,24 +261,24 @@ fn parse_object_header(data: &[u8]) -> io::Result<(usize, usize, u8)> {
     println!("Final size: {}, object type: {}", size, obj_type);
     
     // Handle delta-based objects (types 6 and 7)
-    match obj_type {
-        6 => {
-            // Offset Delta (OBJ_OFS_DELTA): The next part of the data indicates the base object offset
-            let (delta_offset, delta_offset_len) = parse_delta_offset(&data[header_len..])?;
-            header_len += delta_offset_len;
-            println!("Parsed offset delta object with base offset: {}", delta_offset);
-        }
-        7 => {
-            // Reference Delta (OBJ_REF_DELTA): The next 20 bytes are the base object SHA-1
-            if header_len + 20 > data.len() {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Not enough data for reference delta"));
-            }
-            let base_sha = &data[header_len..header_len + 20];
-            header_len += 20;
-            println!("Parsed reference delta object with base SHA-1: {:x?}", base_sha);
-        }
-        _ => { /* For other object types, we don't need special handling */ }
-    }
+    // match obj_type {
+    //     6 => {
+    //         // Offset Delta (OBJ_OFS_DELTA): The next part of the data indicates the base object offset
+    //         let (delta_offset, delta_offset_len) = parse_delta_offset(&data[header_len..])?;
+    //         header_len += delta_offset_len;
+    //         println!("Parsed offset delta object with base offset: {}", delta_offset);
+    //     }
+    //     7 => {
+    //         // Reference Delta (OBJ_REF_DELTA): The next 20 bytes are the base object SHA-1
+    //         if header_len + 20 > data.len() {
+    //             return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Not enough data for reference delta"));
+    //         }
+    //         let base_sha = &data[header_len..header_len + 20];
+    //         header_len += 20;
+    //         println!("Parsed reference delta object with base SHA-1: {:x?}", base_sha);
+    //     }
+    //     _ => { /* For other object types, we don't need special handling */ }
+    // }
 
 
     Ok((size, header_len, obj_type))
