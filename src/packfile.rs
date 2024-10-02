@@ -271,7 +271,7 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
         };
         read_objects.insert(offset, object);
     }
-
+    println!("finished loop");
     let _pack_checksum: [u8; HASH_BYTES] = read_bytes(file)?;
 
     // Write index
