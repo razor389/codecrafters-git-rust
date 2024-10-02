@@ -28,7 +28,7 @@ pub fn store_packfile(target_dir: &str, pack_data: Vec<u8>) -> io::Result<()> {
 // Validate the packfile and extract its contents
 fn validate_packfile(pack_data: &[u8]) -> io::Result<()> {
     // Debug: Log the first few bytes of the packfile
-    println!("Validating packfile... First 16 bytes: {:?}", &pack_data[..16.min(pack_data.len())]);
+    println!("Validating packfile... First 100 bytes: {:?}", &pack_data[..100.min(pack_data.len())]);
 
     // The first 4 bytes should be "PACK"
     if &pack_data[0..4] != b"PACK" {
