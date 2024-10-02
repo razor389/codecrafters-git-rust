@@ -633,7 +633,7 @@ fn process_negotiation_phase(body_bytes: Bytes) -> io::Result<Vec<u8>> {
 
 // Check out the HEAD commit and write files to the working directory
 fn checkout_head_commit(target_dir: &str, head_commit_sha: &str) -> io::Result<()> {
-    
+    println!("got here");
     let repo = Repository::open(target_dir).map_err(|err| {
         io::Error::new(io::ErrorKind::Other, format!("Failed to open repository: {}", err))
     })?;
