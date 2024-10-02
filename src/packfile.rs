@@ -51,7 +51,11 @@ fn validate_packfile(pack_data: &[u8]) -> io::Result<()> {
 fn decompress_object_with_consumed(compressed_data: &[u8]) -> io::Result<(Vec<u8>, usize)> {
     let mut decoder = ZlibDecoder::new(compressed_data);
     let mut decompressed_data = Vec::new();
+    
+    // The key part: track how many bytes are consumed during decompression
     let bytes_consumed = decoder.read_to_end(&mut decompressed_data)?;
+    
+    // Return both the decompressed data and the number of compressed bytes that were consumed
     Ok((decompressed_data, bytes_consumed))
 }
 
@@ -60,7 +64,6 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
     let mut offset = 12; // Skip the 12-byte PACK header
     let mut objects = Vec::new();
-
     let packfile_data_len = pack_data.len();
     let packfile_data_end = packfile_data_len - 20; // Exclude SHA-1 checksum at the end
 
@@ -68,84 +71,51 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
 
     while offset < packfile_data_end {
         println!("Current offset: {}", offset);
-
         let obj_offset = offset;
 
         // Parse the object header (size and type)
         let (obj_size, obj_header_len, obj_type) = match parse_object_header(&pack_data[offset..]) {
             Ok((size, header_len, obj_type)) => {
-                println!(
-                    "Parsed object header at offset {}: size = {}, header_len = {}, type = {}",
-                    obj_offset, size, header_len, obj_type
-                );
+                println!("Parsed object header at offset {}: size = {}, header_len = {}, type = {}",
+                    obj_offset, size, header_len, obj_type);
                 (size, header_len, obj_type)
             },
             Err(err) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Failed to parse object header: {}", err)
-                ));
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse object header: {}", err)));
             }
         };
 
+        // Move the offset to the start of the compressed data
         offset += obj_header_len;
 
-        // Handle delta objects separately
+        // Handle delta objects separately (not focusing on this right now)
         if obj_type == 6 || obj_type == 7 {
-            println!(
-                "Delta object detected at offset {}: type = {}, size = {}",
-                obj_offset, obj_type, obj_size
-            );
-            // Skip delta objects for now
+            println!("Delta object detected at offset {}: type = {}, size = {}", obj_offset, obj_type, obj_size);
             offset += obj_size;
             continue;
         }
 
-        // Ensure we don't go out of bounds
-        if offset + obj_size > packfile_data_end {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Not enough data to read object at offset {}. Required: {}, Remaining: {}",
-                    offset, obj_size, packfile_data_end - offset
-                ),
-            ));
-        }
+        // Extract compressed data (we only care about the decompressed data size)
+        let compressed_data = &pack_data[offset..];
+        println!("Compressed data range: offset = {}, length = {}", offset, compressed_data.len());
 
-        // Extract compressed data
-        let compressed_data = &pack_data[offset..offset + obj_size];
-        println!(
-            "Compressed data range: offset = {}, length = {}, bytes = {:?}",
-            offset,
-            obj_size,
-            &compressed_data[..250.min(compressed_data.len())]
-        );
-
-        // Decompress the object
+        // Decompress the object and track how many bytes were consumed
         match decompress_object_with_consumed(compressed_data) {
             Ok((decompressed_data, bytes_consumed)) => {
-                println!(
-                    "Decompressed object at offset {}: decompressed size = {}, bytes consumed = {}",
-                    obj_offset,
-                    decompressed_data.len(),
-                    bytes_consumed
-                );
+                println!("Decompressed object at offset {}: decompressed size = {}, bytes consumed = {}",
+                    obj_offset, decompressed_data.len(), bytes_consumed);
+                
                 objects.push((obj_offset, decompressed_data));
+
+                // Move to the next object based on the bytes consumed (not the uncompressed size!)
+                offset += bytes_consumed;
             },
             Err(err) => {
-                println!(
-                    "Error decompressing object at offset {}: {:?}",
-                    offset, err
-                );
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Failed to decompress object: {:?}", err)
-                ));
+                println!("Error decompressing object at offset {}: {:?}", offset, err);
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress object: {:?}", err)));
             }
-        };
+        }
 
-        // Move to the next object
-        offset += obj_size;
         println!("Moved to next object, new offset: {}", offset);
     }
 
