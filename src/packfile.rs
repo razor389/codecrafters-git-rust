@@ -237,7 +237,6 @@ fn index_pack_file(file: &mut File, output_dir: &str) -> io::Result<()> {
     }
 
     let total_objects = read_u32(file)?;
-    //println!("total objects: {}", total_objects);
 
     // Map from offsets to the objects that were read
     let mut read_objects = HashMap::new();
