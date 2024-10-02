@@ -14,9 +14,6 @@ const COMMIT_OBJECT_TYPE: &[u8] = b"commit";
 const TREE_OBJECT_TYPE: &[u8] = b"tree";
 const BLOB_OBJECT_TYPE: &[u8] = b"blob";
 const TAG_OBJECT_TYPE: &[u8] = b"tag";
-const INDEX_FILE_SUFFIX: &str = ".idx";
-const PACK_FILE_SUFFIX: &str = ".pack";
-const LONG_OFFSET_FLAG: u32 = 1 << 31;
 const TYPE_BITS: u8 = 3;
 const VARINT_ENCODING_BITS: u8 = 7;
 const TYPE_BYTE_SIZE_BITS: u8 = VARINT_ENCODING_BITS - TYPE_BITS;
@@ -88,12 +85,6 @@ enum ObjectType {
   Tag,
 }
 
-enum PackObjectType {
-  Base(ObjectType),
-  OffsetDelta,
-  HashDelta,
-}
-
 #[derive(Debug)]
 struct Object {
   object_type: ObjectType,
@@ -140,11 +131,6 @@ fn read_bytes<R: Read, const N: usize>(stream: &mut R) -> io::Result<[u8; N]> {
 fn read_u32<R: Read>(stream: &mut R) -> io::Result<u32> {
     let bytes = read_bytes(stream)?;
     Ok(u32::from_be_bytes(bytes))
-}
-
-fn read_hash<R: Read>(stream: &mut R) -> io::Result<Hash> {
-    let bytes = read_bytes(stream)?;
-    Ok(Hash(bytes))
 }
 
 fn read_partial_int<R: Read>(stream: &mut R, bytes: u8, present_bytes: &mut u8) -> io::Result<usize> {
