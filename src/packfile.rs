@@ -227,7 +227,6 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     let dir_name = &object_hash_str[..2];
     let file_name = &object_hash_str[2..];
 
-    // Do not prepend ".git/objects" again, `target_dir` already points to ".git/objects"
     let object_dir_path = format!("{}/{}", target_dir, dir_name);
     let object_file_path = format!("{}/{}", object_dir_path, file_name);
 
@@ -240,11 +239,27 @@ fn store_git_object(target_dir: &str, object: &Object) -> io::Result<()> {
     // Create the directory for the object if it doesn't exist
     fs::create_dir_all(&object_dir_path)?;
 
-    // Compress the object contents using zlib (to mimic Git's object storage format)
+    // Create the full object data (header + contents)
+    let mut object_data = Vec::new();
+    let object_type_str = match object.object_type {
+        ObjectType::Commit => "commit",
+        ObjectType::Tree => "tree",
+        ObjectType::Blob => "blob",
+        ObjectType::Tag => "tag",
+    };
+    
+    // Write the header (object type + size)
+    let header = format!("{} {}\0", object_type_str, object.contents.len());
+    object_data.extend_from_slice(header.as_bytes());
+
+    // Write the contents
+    object_data.extend_from_slice(&object.contents);
+
+    // Compress the full object (header + contents) using zlib
     let mut compressed_data = Vec::new();
     let mut encoder = ZlibEncoder::new(&mut compressed_data, Compression::default());
-    encoder.write_all(&object.contents)?;
-    encoder.finish()?; // Complete the compression
+    encoder.write_all(&object_data)?;  // Now compressing the entire object with the header
+    encoder.finish()?;  // Complete the compression
 
     // Write the compressed object data to the file
     let mut file = File::create(&object_file_path)?;
