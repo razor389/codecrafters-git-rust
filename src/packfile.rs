@@ -48,17 +48,6 @@ fn validate_packfile(pack_data: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-fn decompress_object_with_consumed(compressed_data: &[u8]) -> io::Result<(Vec<u8>, usize)> {
-    let mut decoder = ZlibDecoder::new(compressed_data);
-    let mut decompressed_data = Vec::new();
-    
-    // The key part: track how many bytes are consumed during decompression
-    let bytes_consumed = decoder.read_to_end(&mut decompressed_data)?;
-    
-    // Return both the decompressed data and the number of compressed bytes that were consumed
-    Ok((decompressed_data, bytes_consumed))
-}
-
 fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     validate_packfile(&pack_data)?;
 
@@ -148,6 +137,21 @@ fn index_packfile(pack_data: Vec<u8>, output_dir: &str) -> io::Result<()> {
     println!("Packfile indexed successfully.");
     Ok(())
 }
+
+// Function to decompress the object data and return how many compressed bytes were consumed
+fn decompress_object_with_consumed(compressed_data: &[u8]) -> io::Result<(Vec<u8>, usize)> {
+    let mut decoder = ZlibDecoder::new(compressed_data);
+    let mut decompressed_data = Vec::new();
+    
+    // Capture the number of bytes consumed from the compressed stream
+    let bytes_consumed = match decoder.read_to_end(&mut decompressed_data) {
+        Ok(consumed) => consumed,
+        Err(e) => return Err(io::Error::new(io::ErrorKind::InvalidInput, e)),
+    };
+    
+    Ok((decompressed_data, bytes_consumed))
+}
+
 
 
 // Function to validate the SHA-1 checksum at the end of the packfile
