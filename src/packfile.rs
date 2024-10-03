@@ -14,6 +14,10 @@ const COMMIT_OBJECT_TYPE: &[u8] = b"commit";
 const TREE_OBJECT_TYPE: &[u8] = b"tree";
 const BLOB_OBJECT_TYPE: &[u8] = b"blob";
 const TAG_OBJECT_TYPE: &[u8] = b"tag";
+const TYPE_BITS: u8 = 3;
+const VARINT_ENCODING_BITS: u8 = 7;
+const TYPE_BYTE_SIZE_BITS: u8 = VARINT_ENCODING_BITS - TYPE_BITS;
+const VARINT_CONTINUE_FLAG: u8 = 1 << VARINT_ENCODING_BITS;
 
 fn make_error(message: &str) -> Error {
     Error::new(ErrorKind::Other, message)
@@ -315,25 +319,35 @@ fn read_size_encoding<R: Read>(stream: &mut R) -> io::Result<usize> {
         let (byte_value, more_bytes) = read_varint_byte(stream)?;
         value |= (byte_value as usize) << length;
         if !more_bytes {
-            return Ok(value);
+            return Ok(value)
         }
-        length += 7;
+
+        length += VARINT_ENCODING_BITS;
     }
 }
 
 fn read_varint_byte<R: Read>(stream: &mut R) -> io::Result<(u8, bool)> {
     let [byte] = read_bytes(stream)?;
-    let value = byte & !(1 << 7);
-    let more_bytes = byte & (1 << 7) != 0;
+    let value = byte & !VARINT_CONTINUE_FLAG;
+    let more_bytes = byte & VARINT_CONTINUE_FLAG != 0;
     Ok((value, more_bytes))
 }
 
+fn keep_bits(value: usize, bits: u8) -> usize {
+    value & ((1 << bits) - 1)
+}
+
 fn read_type_and_size<R: Read>(stream: &mut R) -> io::Result<(u8, usize)> {
+    // Object type and uncompressed pack data size
+    // are stored in a "size-encoding" variable-length integer.
+    // Bits 4 through 6 store the type and the remaining bits store the size.
     let value = read_size_encoding(stream)?;
-    let object_type = (value >> 4) as u8;
-    let size = value & 0xF;
+    let object_type = keep_bits(value >> TYPE_BYTE_SIZE_BITS, TYPE_BITS) as u8;
+    let size = keep_bits(value, TYPE_BYTE_SIZE_BITS)
+                | (value >> VARINT_ENCODING_BITS << TYPE_BYTE_SIZE_BITS);
     Ok((object_type, size))
 }
+  
 
 fn read_partial_int<R: Read>(stream: &mut R, bytes: u8, present_bytes: &mut u8) -> io::Result<usize> {
     let mut value = 0;
