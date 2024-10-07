@@ -308,7 +308,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
     let git_caps = fetch_refs(repo_url).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err)))?;
 
     // Step 3: Display the refs and capabilities
-    println!("Capabilities: {:?}", git_caps.capabilities);
+    //println!("Capabilities: {:?}", git_caps.capabilities);
 
     // Step 4: Use the SHA1 of the HEAD ref to request the packfile
     if let Some(commit_sha) = git_caps.refs.get(&git_caps.head.unwrap().points_to) {
@@ -321,6 +321,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         // Step 6: After unpacking, build the repo from the head commit
         println!("Building repository from head commit: {}", head_commit.to_hex());
         build_repo_from_head(&head_commit.to_hex())?;
+        println!("finished building repo");
     } else {
         println!("Could not find SHA1 for HEAD ref");
     }
