@@ -328,8 +328,8 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         println!("Finished building repo and initializing metadata.");
 
         // Step 9: Print the directory structure
-        println!("\nDirectory structure of '{}':", clone_to_dir);
-        print_directory_structure(target_path, 0)?;
+        //println!("\nDirectory structure of '{}':", clone_to_dir);
+        //print_directory_structure(target_path, 0)?;
 
     } else {
         println!("Could not find SHA1 for HEAD ref");
