@@ -255,10 +255,14 @@ fn find_head_commit(commits: Vec<GitCommit>) -> io::Result<Hash> {
 
 fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     // Step 1: Read the tree object from the .git/objects directory
-    println!("Rebuilding from tree hash: {:?}", tree_hash);
+    //println!("Rebuilding from tree hash: {:?}", tree_hash);
     let tree_object = GitObject::read_by_hash(tree_hash)?;
 
     if let GitObject::Tree(entries) = tree_object {
+        for entry in &entries {
+            println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
+        }
+
         for entry in entries {
             let path = Path::new(&entry.name);
             
