@@ -138,7 +138,7 @@ fn hash_object_command(file: &str, write: bool) -> io::Result<()> {
     // If the -w flag is passed, write the blob object to the .git/objects directory
     if write {
         blob.write()?;
-        println!("Object written to .git/objects");
+        //println!("Object written to .git/objects");
     }
 
     Ok(())
