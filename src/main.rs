@@ -303,9 +303,9 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
     // Step 2: Change the current directory to the target directory
     std::env::set_current_dir(target_path)?;
 
-    // // Step 3: Initialize the Git repository inside the target directory
-    // println!("Initializing Git metadata in target directory...");
-    // init_command()?;  // Ensure .git is created before cloning operations
+    // Step 3: Initialize the Git repository inside the target directory
+    println!("Initializing Git metadata in target directory...");
+    init_command()?;  // Ensure .git is created before cloning operations
 
     // Step 4: Fetch refs from the remote repository
     let git_caps = fetch_refs(repo_url).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err)))?;
