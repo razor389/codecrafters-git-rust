@@ -331,7 +331,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         write_ref_to_head(&head_commit.to_hex())?;
         println!("Finished building repo and initializing metadata.");
         println!("\nDirectory structure of '{}':", clone_to_dir);
-        print_directory_structure(target_path, 1)?;
+        print_directory_structure(target_path, 0)?;
 
     } else {
         println!("Could not find SHA1 for HEAD ref");
@@ -358,7 +358,7 @@ fn write_ref_to_head(commit_hash: &str) -> io::Result<()> {
 
 /// Recursively prints the directory structure up to the specified depth.
 fn print_directory_structure(path: &Path, depth: usize) -> io::Result<()> {
-    if depth > 2 {
+    if depth > 1 {
         return Ok(());
     }
 
