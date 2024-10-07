@@ -320,7 +320,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
 
         // Step 6: After unpacking, build the repo from the head commit
         println!("Building repository from head commit: {}", head_commit.to_hex());
-        build_repo_from_head(&head_commit.to_hex())?;
+        build_repo_from_head(&head_commit.to_hex(),target_path)?;
         println!("finished building repo");
     } else {
         println!("Could not find SHA1 for HEAD ref");

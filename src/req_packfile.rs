@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{fs, str};
 use crate::objects::Hash;
 
@@ -175,13 +175,13 @@ pub fn request_packfile(repo_url: &str, commit_sha: &str) -> Result<Response, Bo
 }
  */
 
-pub fn build_repo_from_head(commit_sha: &str) -> io::Result<()> {
+pub fn build_repo_from_head(commit_sha: &str, target_dir: &Path) -> io::Result<()> {
     // Step 1: Read the commit object using the commit_sha passed from main
     let commit = GitObject::read(commit_sha)?;
 
     if let GitObject::Commit(commit) = commit {
         // Step 2: Process the tree associated with this commit
-        rebuild_from_tree(commit.tree)?;
+        rebuild_from_tree(commit.tree, target_dir)?;
     } else {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid HEAD commit object"));
     }
@@ -253,64 +253,56 @@ fn find_head_commit(commits: Vec<GitCommit>) -> io::Result<Hash> {
     Ok(GitObject::Commit(latest_commit).hash())
 }
 
-fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
+// Rebuilds the file system structure from a Git tree object
+fn rebuild_from_tree(tree_hash: Hash, target_dir: &Path) -> io::Result<()> {
     // Step 1: Read the tree object from the .git/objects directory
-    //println!("Rebuilding from tree hash: {:?}", tree_hash);
     let tree_object = GitObject::read_by_hash(tree_hash)?;
 
+    // Step 2: Check if the tree object is actually a tree
     if let GitObject::Tree(entries) = tree_object {
         for entry in &entries {
             println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
         }
         println!("\n");
 
+        // Iterate over the entries in the tree
         for entry in entries {
-            let path = Path::new(&entry.name);
+            // Build the full path by appending the entry name to the current target directory
+            let path: PathBuf = target_dir.join(&entry.name);
             
-            //println!("Processing entry: {:?}", entry.name);
-
-            // Step 2: If the entry is a directory (mode "40000"), handle it
-            if entry.mode == "40000" {
-                //println!("Directory detected: {:?}", path);
-
-                // Check if a file exists where we need to create a directory
+            // Handle directories
+            if entry.mode == "40000" {  // Git mode for directories
+                // If a file exists where the directory should be, remove it
                 if path.exists() && path.is_file() {
-                    //println!("Removing file '{}' to create a directory", entry.name);
-                    fs::remove_file(&entry.name)?;
+                    println!("Removing file '{}' to create directory", path.display());
+                    fs::remove_file(&path)?;
                 }
 
-                // Now create the directory if it doesn't exist
+                // Create the directory if it does not exist
                 if !path.exists() {
-                    //println!("Creating directory: {:?}", path);
-                    fs::create_dir_all(&entry.name)?;
+                    println!("Creating directory: {:?}", path.display());
+                    fs::create_dir_all(&path)?;
                 }
 
-                // Recursively rebuild the directory tree
-                println!("Entering directory: {:?}", entry.name);
-                rebuild_from_tree(entry.object)?;
+                // Recursively rebuild the subdirectory tree
+                println!("Entering directory: {:?}", path.display());
+                rebuild_from_tree(entry.object, &path)?;
 
-                // Print current directory structure after processing a directory
-                //print_directory_structure(&path);
             } else {
-                // Step 3: If the entry is a file, handle it
-                //println!("File detected: {:?}", path);
-
-                // Check if a directory exists where we need to create a file
+                // Handle files
+                // If a directory exists where the file should be, remove it
                 if path.exists() && path.is_dir() {
-                    //println!("Removing directory '{}' to create a file", entry.name);
-                    fs::remove_dir_all(&entry.name)?;
+                    println!("Removing directory '{}' to create file", path.display());
+                    fs::remove_dir_all(&path)?;
                 }
 
-                // Extract and write the blob (file)
+                // Extract the blob and write the contents to the file
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
-                    //println!("Writing file: {:?}", path);
-                    let mut file = File::create(&entry.name)?;
+                    println!("Writing file: {:?}", path.display());
+                    let mut file = File::create(&path)?;
                     file.write_all(&contents)?;
                 }
-
-                // Print current directory structure after processing a file
-                //print_directory_structure(&path);
             }
         }
     } else {
@@ -320,23 +312,3 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     Ok(())
 }
 
-// Helper function to print the current structure of the directory at any given time
-fn print_directory_structure(path: &Path) {
-    println!("Current directory structure for: {:?}", path);
-    match fs::read_dir(path) {
-        Ok(entries) => {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    let file_type = entry.file_type().unwrap();
-                    if file_type.is_dir() {
-                        println!("Dir:  {:?}", path);
-                    } else if file_type.is_file() {
-                        println!("File: {:?}", path);
-                    }
-                }
-            }
-        }
-        Err(e) => println!("Error reading directory: {:?} - {:?}", path, e),
-    }
-}
