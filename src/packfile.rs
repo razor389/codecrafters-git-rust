@@ -297,7 +297,7 @@ impl<'a> Packfile<'a> {
                 }
                 6 => {
                     // Offset delta object
-
+                    println!("offset delta object");
                     // Step 1: Read the delta offset
                     let delta_offset = read_offset_encoding(self.file)?;
 
@@ -324,7 +324,8 @@ impl<'a> Packfile<'a> {
                     object
                 }
                 7 => {
-                    // Hash delta object
+                    // Hash delta object   
+                    println!("hash delta object");
 
                     // Step 1: Read the base object's hash
                     let base_hash = read_hash(self.file)?;
