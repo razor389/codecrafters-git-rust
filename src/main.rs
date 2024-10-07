@@ -197,10 +197,10 @@ fn ls_tree_command(tree_hash: &str, name_only: bool) -> io::Result<()> {
 /// Commit a tree object with an optional parent and commit message.
 fn commit_tree_command(tree_sha: &str, parent_commits: &Vec<String>, message: &str) -> io::Result<()> {
     // Define author/committer information
-    let author_name = "Author Name".to_string();
-    let author_email = "author@example.com".to_string();
-    let committer_name = "Committer Name".to_string();
-    let committer_email = "committer@example.com".to_string();
+    let author_name = "razor389".to_string();
+    let author_email = "rgranowski@gmail.com".to_string();
+    let committer_name = "razor389".to_string();
+    let committer_email = "rgranowski@gmail.com".to_string();
 
     // Get the current timestamp
     let timestamp = SystemTime::now()
