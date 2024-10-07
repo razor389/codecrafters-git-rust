@@ -274,32 +274,32 @@ fn rebuild_from_tree(tree_hash: Hash, target_dir: &Path) -> io::Result<()> {
             if entry.mode == "40000" {  // Git mode for directories
                 // If a file exists where the directory should be, remove it
                 if path.exists() && path.is_file() {
-                    println!("Removing file '{}' to create directory", path.display());
+                    //println!("Removing file '{}' to create directory", path.display());
                     fs::remove_file(&path)?;
                 }
 
                 // Create the directory if it does not exist
                 if !path.exists() {
-                    println!("Creating directory: {:?}", path.display());
+                    //println!("Creating directory: {:?}", path.display());
                     fs::create_dir_all(&path)?;
                 }
 
                 // Recursively rebuild the subdirectory tree
-                println!("Entering directory: {:?}", path.display());
+                //println!("Entering directory: {:?}", path.display());
                 rebuild_from_tree(entry.object, &path)?;
 
             } else {
                 // Handle files
                 // If a directory exists where the file should be, remove it
                 if path.exists() && path.is_dir() {
-                    println!("Removing directory '{}' to create file", path.display());
+                    //println!("Removing directory '{}' to create file", path.display());
                     fs::remove_dir_all(&path)?;
                 }
 
                 // Extract the blob and write the contents to the file
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
-                    println!("Writing file: {:?}", path.display());
+                    //println!("Writing file: {:?}", path.display());
                     let mut file = File::create(&path)?;
                     file.write_all(&contents)?;
                 }
