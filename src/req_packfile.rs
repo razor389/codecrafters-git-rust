@@ -260,10 +260,10 @@ fn rebuild_from_tree(tree_hash: Hash, target_dir: &Path) -> io::Result<()> {
 
     // Step 2: Check if the tree object is actually a tree
     if let GitObject::Tree(entries) = tree_object {
-        for entry in &entries {
-            println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
-        }
-        println!("\n");
+        //for entry in &entries {
+        //    println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
+        //}
+        //println!("\n");
 
         // Iterate over the entries in the tree
         for entry in entries {
