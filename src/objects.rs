@@ -157,7 +157,7 @@ impl GitObject {
                 let mut result = Vec::new();
                 for entry in entries {
                     // Serialize the mode and name of the entry, and add a null byte
-                    println!("{} {}\0{}", entry.mode, entry.name, entry.object.to_hex());
+                    //println!("{} {}\0{}", entry.mode, entry.name, entry.object.to_hex());
                     let entry_data = format!("{} {}\0", entry.mode, entry.name).into_bytes();
                     result.extend_from_slice(&entry_data);
             
