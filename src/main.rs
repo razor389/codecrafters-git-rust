@@ -301,7 +301,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
     }
 
     // Step 2: Change the current directory to the target directory
-    std::env::set_current_dir(target_path)?;
+    //std::env::set_current_dir(target_path)?;
 
     // Step 3: Initialize the Git repository inside the target directory
     println!("Initializing Git metadata in target directory...");
