@@ -252,19 +252,30 @@ fn find_head_commit(commits: Vec<GitCommit>) -> io::Result<Hash> {
     Ok(GitObject::Commit(latest_commit).hash())
 }
 
-
 fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     // Step 1: Read the tree object from the .git/objects directory
     let tree_object = GitObject::read_by_hash(tree_hash)?;
 
     if let GitObject::Tree(entries) = tree_object {
         for entry in entries {
+            let path = Path::new(&entry.name);
+
             // Step 2: If the entry is a directory (mode "40000"), recursively rebuild
             if entry.mode == "40000" {
-                fs::create_dir_all(&entry.name)?;
+                // Create the directory
+                if !path.exists() || !path.is_dir() {
+                    fs::create_dir_all(&entry.name)?;
+                }
+                // Recursively rebuild the directory tree
                 rebuild_from_tree(entry.object)?;
             } else {
                 // Step 3: If the entry is a file (e.g., "100644"), extract the blob and write it to the file system
+                // Check if a file is being written to a directory path
+                if path.is_dir() {
+                    return Err(io::Error::new(io::ErrorKind::Other, format!("Cannot create file: '{}' is a directory", entry.name)));
+                }
+
+                // Extract and write the blob
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
                     let mut file = File::create(&entry.name)?;
