@@ -98,7 +98,7 @@ impl GitObject {
     /// Read a Git object from the `.git/objects` directory.
     pub fn read(object_id: &str) -> io::Result<GitObject> {
         let object_path = format!(".git/objects/{}/{}", &object_id[..2], &object_id[2..]);
-        println!("trying to read from {}", object_path);
+        //println!("trying to read from {}", object_path);
         // Read and decompress the object data
         let mut file = fs::File::open(object_path)?;
         let mut compressed_data = Vec::new();
@@ -116,7 +116,7 @@ impl GitObject {
         
         // The first two characters of the hash form the directory name
         let object_path = format!(".git/objects/{}/{}", &object_id_hex[..2], &object_id_hex[2..]);
-        println!("Reading from {}", object_path);
+        //println!("Reading from {}", object_path);
 
         // Read the compressed object data from the file
         let mut file = fs::File::open(object_path)?;
