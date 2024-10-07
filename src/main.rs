@@ -301,35 +301,33 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         println!("Directory already exists: {}", clone_to_dir);
     }
 
-    // Change the current directory to the target directory
+    // Step 2: Change the current directory to the target directory
     std::env::set_current_dir(target_path)?;
 
-    // Step 2: Fetch refs from the remote repository (still needed for refs)
+    // Step 3: Initialize the Git repository inside the target directory
+    println!("Initializing Git metadata in target directory...");
+    init_command()?;  // Ensure .git is created before cloning operations
+
+    // Step 4: Fetch refs from the remote repository
     let git_caps = fetch_refs(repo_url).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err)))?;
 
-    // Step 3: Display the refs and capabilities
-    //println!("Capabilities: {:?}", git_caps.capabilities);
-
-    // Step 4: Use the SHA1 of the HEAD ref to request the packfile
+    // Step 5: Use the SHA1 of the HEAD ref to request the packfile
     if let Some(commit_sha) = git_caps.refs.get(&git_caps.head.unwrap().points_to) {
         println!("Requesting packfile for commit: {}", commit_sha);
         let response = request_packfile(repo_url, commit_sha).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err)))?;
 
-        // Step 5: Process the packfile and find the correct head commit
+        // Step 6: Process the packfile and find the correct head commit
         let head_commit = process_packfile_and_find_head(response, clone_to_dir)?;
 
-        // Step 6: After unpacking, build the repo from the head commit
+        // Step 7: After unpacking, build the repo from the head commit
         println!("Building repository from head commit: {}", head_commit.to_hex());
-        build_repo_from_head(&head_commit.to_hex(),target_path)?;
-        println!("finished building repo");
+        build_repo_from_head(&head_commit.to_hex(), target_path)?;
 
-        println!("Initializing Git metadata...");
-
-        init_command()?;
-
-        // Step 7: Write the HEAD reference and point it to master
+        // Step 8: Write the HEAD reference and point it to master
         write_ref_to_head(&head_commit.to_hex())?;
         println!("Finished building repo and initializing metadata.");
+
+        // Step 9: Print the directory structure
         println!("\nDirectory structure of '{}':", clone_to_dir);
         print_directory_structure(target_path, 0)?;
 
