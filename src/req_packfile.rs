@@ -261,6 +261,7 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     if let GitObject::Tree(entries) = tree_object {
         for entry in &entries {
             println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
+            println!("\n")
         }
 
         for entry in entries {
