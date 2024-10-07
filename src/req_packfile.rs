@@ -270,40 +270,40 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
 
             // Step 2: If the entry is a directory (mode "40000"), handle it
             if entry.mode == "40000" {
-                println!("Directory detected: {:?}", path);
+                //println!("Directory detected: {:?}", path);
 
                 // Check if a file exists where we need to create a directory
                 if path.exists() && path.is_file() {
-                    println!("Removing file '{}' to create a directory", entry.name);
+                    //println!("Removing file '{}' to create a directory", entry.name);
                     fs::remove_file(&entry.name)?;
                 }
 
                 // Now create the directory if it doesn't exist
                 if !path.exists() {
-                    println!("Creating directory: {:?}", path);
+                    //println!("Creating directory: {:?}", path);
                     fs::create_dir_all(&entry.name)?;
                 }
 
                 // Recursively rebuild the directory tree
-                println!("Entering directory: {:?}", entry.name);
+                //println!("Entering directory: {:?}", entry.name);
                 rebuild_from_tree(entry.object)?;
 
                 // Print current directory structure after processing a directory
                 print_directory_structure(&path);
             } else {
                 // Step 3: If the entry is a file, handle it
-                println!("File detected: {:?}", path);
+                //println!("File detected: {:?}", path);
 
                 // Check if a directory exists where we need to create a file
                 if path.exists() && path.is_dir() {
-                    println!("Removing directory '{}' to create a file", entry.name);
+                    //println!("Removing directory '{}' to create a file", entry.name);
                     fs::remove_dir_all(&entry.name)?;
                 }
 
                 // Extract and write the blob (file)
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
-                    println!("Writing file: {:?}", path);
+                    //println!("Writing file: {:?}", path);
                     let mut file = File::create(&entry.name)?;
                     file.write_all(&contents)?;
                 }
