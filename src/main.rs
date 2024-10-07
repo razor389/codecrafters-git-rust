@@ -350,6 +350,34 @@ fn write_ref_to_head(commit_hash: &str) -> io::Result<()> {
     ref_file.write_all(commit_hash.as_bytes())?;
     
     println!("Written head ref (commit) to refs/heads/master: {}", commit_hash);
+    println!("\nDirectory structure of '{}':", clone_to_dir);
+    print_directory_structure(target_path, 0)?;
+    Ok(())
+}
+
+/// Recursively prints the directory structure up to the specified depth.
+fn print_directory_structure(path: &Path, depth: usize) -> io::Result<()> {
+    if depth > 2 {
+        return Ok(());
+    }
+
+    if path.is_dir() {
+        // Read the directory contents
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            let prefix = "  ".repeat(depth);  // Create an indented prefix based on the depth
+            
+            // Print the directory or file name
+            if entry_path.is_dir() {
+                println!("{}[DIR] {}", prefix, entry.file_name().to_string_lossy());
+                // Recursively print the subdirectory contents
+                print_directory_structure(&entry_path, depth + 1)?;
+            } else {
+                println!("{}[FILE] {}", prefix, entry.file_name().to_string_lossy());
+            }
+        }
+    }
 
     Ok(())
 }
