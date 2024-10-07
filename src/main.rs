@@ -75,6 +75,8 @@ enum Commands {
     Clone {
         /// URL of the remote repository
         repo_url: String,
+        /// Directory to clone into
+        target_dir: String,
     }
 }
 
@@ -93,7 +95,7 @@ fn main() -> io::Result<()> {
             message,
         } => commit_tree_command(tree_sha, parent_commits, message),
         Commands::Show { commit_hash } => show_command(commit_hash),
-        Commands::Clone { repo_url } => clone_command(repo_url),
+        Commands::Clone { repo_url, target_dir } => clone_command(repo_url, target_dir),
     }
 }
 
@@ -289,7 +291,7 @@ fn show_command(commit_hash: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn clone_command(repo_url: &str) -> io::Result<()> {
+fn clone_command(repo_url: &str, target_dir: &str) -> io::Result<()> {
     // Step 1: Fetch refs from the remote repository
     let git_caps = fetch_refs(repo_url).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err)))?;
 
@@ -304,7 +306,6 @@ fn clone_command(repo_url: &str) -> io::Result<()> {
             let response = request_packfile(repo_url, commit_sha).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err)))?;
 
             // Step 4: Process the packfile
-            let target_dir = "."; // Clone into the current directory
             process_packfile(response, target_dir)?;
 
             // Step 5: After unpacking, build the repo from the HEAD commit
