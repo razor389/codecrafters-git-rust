@@ -232,7 +232,7 @@ pub fn process_packfile_and_find_head(mut response: Response, target_dir: &str) 
 
     // Step 7: Find the head commit (commit with no parent or most recent based on timestamp)
     let head_commit = find_head_commit(commit_objects)?;
-
+    println!("found head commit: {}", head_commit);
     Ok(head_commit)
 }
 
