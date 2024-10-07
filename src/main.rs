@@ -330,6 +330,8 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         // Step 7: Write the HEAD reference and point it to master
         write_ref_to_head(&head_commit.to_hex())?;
         println!("Finished building repo and initializing metadata.");
+        println!("\nDirectory structure of '{}':", clone_to_dir);
+        print_directory_structure(target_path, 0)?;
 
     } else {
         println!("Could not find SHA1 for HEAD ref");
@@ -350,8 +352,7 @@ fn write_ref_to_head(commit_hash: &str) -> io::Result<()> {
     ref_file.write_all(commit_hash.as_bytes())?;
     
     println!("Written head ref (commit) to refs/heads/master: {}", commit_hash);
-    println!("\nDirectory structure of '{}':", clone_to_dir);
-    print_directory_structure(target_path, 0)?;
+    
     Ok(())
 }
 
