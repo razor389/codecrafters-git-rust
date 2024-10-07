@@ -281,8 +281,9 @@ impl<'a> Packfile<'a> {
                     let decompressed_data = read_zlib_stream(self.file, size)?;
                     let commit = GitObject::parse_commit(&decompressed_data)?;
                     let commit_obj = GitObject::Commit(commit.clone());
-                    println!("{:?}", commit_obj);
+                    //println!("{:?}", commit_obj);
                     println!("serialized commit: {:?}", String::from_utf8_lossy(&commit_obj.serialize()));
+                    println!("commit obj hash: {}", commit_obj.hash().to_hex());
                     commits.push(commit);
                     commit_obj
                 }
@@ -299,7 +300,7 @@ impl<'a> Packfile<'a> {
                 }
                 6 => {
                     // Offset delta object
-                    println!("offset delta object");
+                    //println!("offset delta object");
                     // Step 1: Read the delta offset
                     let delta_offset = read_offset_encoding(self.file)?;
 
@@ -327,7 +328,7 @@ impl<'a> Packfile<'a> {
                 }
                 7 => {
                     // Hash delta object   
-                    println!("hash delta object");
+                    //println!("hash delta object");
 
                     // Step 1: Read the base object's hash
                     let base_hash = read_hash(self.file)?;
