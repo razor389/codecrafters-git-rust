@@ -289,7 +289,7 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
                 rebuild_from_tree(entry.object)?;
 
                 // Print current directory structure after processing a directory
-                print_directory_structure(&path);
+                //print_directory_structure(&path);
             } else {
                 // Step 3: If the entry is a file, handle it
                 //println!("File detected: {:?}", path);
@@ -309,7 +309,7 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
                 }
 
                 // Print current directory structure after processing a file
-                print_directory_structure(&path);
+                //print_directory_structure(&path);
             }
         }
     } else {
