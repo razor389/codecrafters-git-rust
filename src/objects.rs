@@ -80,10 +80,10 @@ impl GitObject {
         // The first two characters of the hash form the directory name
         let object_path = format!(".git/objects/{}", &object_id_hex[..2]);  
         let object_file = format!("{}/{}", object_path, &object_id_hex[2..]); // Remaining part forms the filename
-        println!("writing to {}", object_file);
+        //println!("writing to {}", object_file);
         // Ensure directory exists
         fs::create_dir_all(object_path)?;
-
+        
         // Serialize and compress the object data (Git uses zlib compression)
         let data = self.serialize();
         let compressed_data = compress(&data)?;
@@ -98,7 +98,7 @@ impl GitObject {
     /// Read a Git object from the `.git/objects` directory.
     pub fn read(object_id: &str) -> io::Result<GitObject> {
         let object_path = format!(".git/objects/{}/{}", &object_id[..2], &object_id[2..]);
-
+        println!("trying to read");
         // Read and decompress the object data
         let mut file = fs::File::open(object_path)?;
         let mut compressed_data = Vec::new();
