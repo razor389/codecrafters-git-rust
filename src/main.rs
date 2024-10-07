@@ -122,30 +122,6 @@ fn init_command() -> io::Result<()> {
     Ok(())
 }
 
-fn init_command_in_dir(target_path: &Path) -> io::Result<()> {
-    // Define the .git directory inside the target path
-    let git_dir = target_path.join(".git");
-
-    // Check if .git already exists
-    if git_dir.exists() {
-        println!("Reinitialized existing Git repository in {}/.git", target_path.display());
-    } else {
-        // Create the .git directory and necessary subdirectories
-        fs::create_dir(&git_dir)?;
-        fs::create_dir(git_dir.join("objects"))?;
-        fs::create_dir_all(git_dir.join("refs"))?;
-
-        // Create the HEAD file
-        let mut head_file = fs::File::create(git_dir.join("HEAD"))?;
-        head_file.write_all(b"ref: refs/heads/master\n")?;
-
-        println!("Initialized empty Git repository in {}/.git", target_path.display());
-    }
-
-    Ok(())
-}
-
-
 fn hash_object_command(file: &str, write: bool) -> io::Result<()> {
     let file_path = Path::new(file);
 
@@ -324,9 +300,12 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         println!("Directory already exists: {}", clone_to_dir);
     }
 
-    // Step 2: Initialize the Git repository inside the target directory (no need to change current dir)
+    // Step 2: Change the current directory to the target directory
+    std::env::set_current_dir(target_path)?;
+
+    // Step 3: Initialize the Git repository inside the target directory
     println!("Initializing Git metadata in target directory...");
-    init_command_in_dir(target_path)?;  // Use a modified version of init_command
+    init_command()?;  // Ensure .git is created before cloning operations
 
     // Step 4: Fetch refs from the remote repository
     let git_caps = fetch_refs(repo_url).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err)))?;
