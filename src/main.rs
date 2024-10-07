@@ -331,7 +331,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
         write_ref_to_head(&head_commit.to_hex())?;
         println!("Finished building repo and initializing metadata.");
         println!("\nDirectory structure of '{}':", clone_to_dir);
-        print_directory_structure(target_path, 0)?;
+        print_directory_structure(target_path, 1)?;
 
     } else {
         println!("Could not find SHA1 for HEAD ref");
