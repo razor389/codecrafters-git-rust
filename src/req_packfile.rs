@@ -263,7 +263,7 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
             println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
         }
         println!("\n");
-        
+
         for entry in entries {
             let path = Path::new(&entry.name);
             
@@ -286,7 +286,7 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
                 }
 
                 // Recursively rebuild the directory tree
-                //println!("Entering directory: {:?}", entry.name);
+                println!("Entering directory: {:?}", entry.name);
                 rebuild_from_tree(entry.object)?;
 
                 // Print current directory structure after processing a directory
