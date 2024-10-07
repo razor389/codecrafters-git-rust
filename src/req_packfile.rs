@@ -261,22 +261,28 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
         for entry in entries {
             let path = Path::new(&entry.name);
 
-            // Step 2: If the entry is a directory (mode "40000"), recursively rebuild
+            // Step 2: If the entry is a directory (mode "40000"), handle it
             if entry.mode == "40000" {
-                // Create the directory
-                if !path.exists() || !path.is_dir() {
+                // Check if a file exists where we need to create a directory
+                if path.exists() && path.is_file() {
+                    println!("Removing file '{}' to create a directory", entry.name);
+                    fs::remove_file(&entry.name)?;
+                }
+                // Now create the directory if it doesn't exist
+                if !path.exists() {
                     fs::create_dir_all(&entry.name)?;
                 }
                 // Recursively rebuild the directory tree
                 rebuild_from_tree(entry.object)?;
             } else {
-                // Step 3: If the entry is a file (e.g., "100644"), extract the blob and write it to the file system
-                // Check if a file is being written to a directory path
-                if path.is_dir() {
-                    return Err(io::Error::new(io::ErrorKind::Other, format!("Cannot create file: '{}' is a directory", entry.name)));
+                // Step 3: If the entry is a file, handle it
+                // Check if a directory exists where we need to create a file
+                if path.exists() && path.is_dir() {
+                    println!("Removing directory '{}' to create a file", entry.name);
+                    fs::remove_dir_all(&entry.name)?;
                 }
 
-                // Extract and write the blob
+                // Extract and write the blob (file)
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
                     let mut file = File::create(&entry.name)?;
