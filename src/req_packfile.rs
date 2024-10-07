@@ -266,7 +266,7 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
         for entry in entries {
             let path = Path::new(&entry.name);
             
-            println!("Processing entry: {:?}", entry.name);
+            //println!("Processing entry: {:?}", entry.name);
 
             // Step 2: If the entry is a directory (mode "40000"), handle it
             if entry.mode == "40000" {
