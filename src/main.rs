@@ -311,7 +311,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
     println!("Capabilities: {:?}", git_caps.capabilities);
 
     // Step 4: Use the SHA1 of the HEAD ref to request the packfile
-    if let Some(commit_sha) = git_caps.refs.get("HEAD").or_else(|| git_caps.refs.get("refs/heads/master")) {
+    if let Some(commit_sha) = git_caps.refs.get(&git_caps.head.unwrap().points_to) {
         println!("Requesting packfile for commit: {}", commit_sha);
         let response = request_packfile(repo_url, commit_sha).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err)))?;
 
