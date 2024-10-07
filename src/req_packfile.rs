@@ -255,27 +255,41 @@ fn find_head_commit(commits: Vec<GitCommit>) -> io::Result<Hash> {
 
 fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     // Step 1: Read the tree object from the .git/objects directory
+    println!("Rebuilding from tree hash: {:?}", tree_hash);
     let tree_object = GitObject::read_by_hash(tree_hash)?;
 
     if let GitObject::Tree(entries) = tree_object {
         for entry in entries {
             let path = Path::new(&entry.name);
+            
+            println!("Processing entry: {:?}", entry.name);
 
             // Step 2: If the entry is a directory (mode "40000"), handle it
             if entry.mode == "40000" {
+                println!("Directory detected: {:?}", path);
+
                 // Check if a file exists where we need to create a directory
                 if path.exists() && path.is_file() {
                     println!("Removing file '{}' to create a directory", entry.name);
                     fs::remove_file(&entry.name)?;
                 }
+
                 // Now create the directory if it doesn't exist
                 if !path.exists() {
+                    println!("Creating directory: {:?}", path);
                     fs::create_dir_all(&entry.name)?;
                 }
+
                 // Recursively rebuild the directory tree
+                println!("Entering directory: {:?}", entry.name);
                 rebuild_from_tree(entry.object)?;
+
+                // Print current directory structure after processing a directory
+                print_directory_structure(&path);
             } else {
                 // Step 3: If the entry is a file, handle it
+                println!("File detected: {:?}", path);
+
                 // Check if a directory exists where we need to create a file
                 if path.exists() && path.is_dir() {
                     println!("Removing directory '{}' to create a file", entry.name);
@@ -285,9 +299,13 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
                 // Extract and write the blob (file)
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
+                    println!("Writing file: {:?}", path);
                     let mut file = File::create(&entry.name)?;
                     file.write_all(&contents)?;
                 }
+
+                // Print current directory structure after processing a file
+                print_directory_structure(&path);
             }
         }
     } else {
@@ -295,4 +313,25 @@ fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+// Helper function to print the current structure of the directory at any given time
+fn print_directory_structure(path: &Path) {
+    println!("Current directory structure for: {:?}", path);
+    match fs::read_dir(path) {
+        Ok(entries) => {
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    let file_type = entry.file_type().unwrap();
+                    if file_type.is_dir() {
+                        println!("Dir:  {:?}", path);
+                    } else if file_type.is_file() {
+                        println!("File: {:?}", path);
+                    }
+                }
+            }
+        }
+        Err(e) => println!("Error reading directory: {:?} - {:?}", path, e),
+    }
 }
