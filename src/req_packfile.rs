@@ -1,4 +1,4 @@
-use crate::objects::GitObject;
+use crate::objects::{GitCommit, GitObject};
 use crate::packfile::Packfile;
 use reqwest::blocking::{Client, Response};
 use std::collections::HashMap;
@@ -189,7 +189,7 @@ pub fn build_repo_from_head(commit_sha: &str) -> io::Result<()> {
 }
 
 /// Function to process the packfile response and handle NAK, packfile header, and remaining data
-pub fn process_packfile(mut response: Response, target_dir: &str) -> io::Result<()> {
+pub fn process_packfile_and_find_head(mut response: Response, target_dir: &str) -> io::Result<Hash> {
     let mut packfile_data = Vec::new();
     response.read_to_end(&mut packfile_data)?;
 
@@ -197,7 +197,6 @@ pub fn process_packfile(mut response: Response, target_dir: &str) -> io::Result<
     let nak_prefix = b"0008NAK\n";
     if packfile_data.starts_with(nak_prefix) {
         println!("Received NAK, continuing to process the packfile...");
-        // Skip the NAK part
         packfile_data.drain(0..nak_prefix.len());
     }
 
@@ -226,13 +225,31 @@ pub fn process_packfile(mut response: Response, target_dir: &str) -> io::Result<
     let mut pack_file = File::create(&pack_file_path)?;
     pack_file.write_all(&packfile_data[12..])?;
 
-    // Step 6: Now that the packfile is saved, we can proceed to unpack it
-    let mut packfile = File::open(&pack_file_path)?;
-    let mut packfile_instance = Packfile::new(&mut packfile, num_objects);
-    packfile_instance.unpack()?;
+    // Step 6: Unpack the objects and track commit objects
+    let mut packfile_instance = Packfile::new(&mut pack_file, num_objects);
+    let commit_objects = packfile_instance.unpack_and_collect_commits()?;
 
-    Ok(())
+    // Step 7: Find the head commit (commit with no parent or most recent based on timestamp)
+    let head_commit = find_head_commit(commit_objects)?;
+
+    Ok(head_commit)
 }
+
+fn find_head_commit(commits: Vec<GitCommit>) -> io::Result<Hash> {
+    if commits.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "No commits found in packfile"));
+    }
+
+    // // Option 1: Find the commit with no parent
+    // if let Some(commit) = commits.iter().find(|c| c.parent.is_none()) {
+    //     return Ok(commit.hash());
+    // }
+
+    // Option 2: Find the most recent commit based on timestamp
+    let latest_commit = commits.into_iter().max_by_key(|c| c.timestamp).unwrap();
+    Ok(GitObject::Commit(latest_commit).hash())
+}
+
 
 fn rebuild_from_tree(tree_hash: Hash) -> io::Result<()> {
     // Step 1: Read the tree object from the .git/objects directory

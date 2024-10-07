@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fs::File, io::{self, Error, ErrorKind, Read, Seek, SeekFrom}};
 use flate2::read::ZlibDecoder;
-use crate::objects::{GitObject, Hash};
+use crate::objects::{GitCommit, GitObject, Hash};
 
 const TYPE_BITS: u8 = 3;
 const VARINT_ENCODING_BITS: u8 = 7;
@@ -262,10 +262,10 @@ impl<'a> Packfile<'a> {
     }
 
      /// Parse and unpack the packfile
-     pub fn unpack(&mut self) -> io::Result<()> {
+     pub fn unpack_and_collect_commits(&mut self) -> io::Result<Vec<GitCommit>> {
         // Map of offsets to objects that were unpacked
         let mut read_objects: HashMap<u64, GitObject> = HashMap::new();
-
+        let mut commits = Vec::new();
         for _ in 0..self.num_objects {
             // Step 1: Save the current offset
             let offset = get_offset(self.file)?;
@@ -279,9 +279,11 @@ impl<'a> Packfile<'a> {
                 1 => {
                     // Commit object
                     let decompressed_data = read_zlib_stream(self.file, size)?;
-                    let commit_obj = GitObject::Commit(GitObject::parse_commit(&decompressed_data)?);
+                    let commit = GitObject::parse_commit(&decompressed_data)?;
+                    let commit_obj = GitObject::Commit(commit.clone());
                     println!("{:?}", commit_obj);
                     println!("serialized commit: {:?}", String::from_utf8_lossy(&commit_obj.serialize()));
+                    commits.push(commit);
                     commit_obj
                 }
                 2 => {
@@ -359,7 +361,7 @@ impl<'a> Packfile<'a> {
             git_object.write()?;
         }
 
-        Ok(())
+        Ok(commits)
     }
 
 }

@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::{SystemTime, Duration, UNIX_EPOCH};
 use crate::objects::{GitCommit, GitObject, Hash};
-use req_packfile::{fetch_refs, request_packfile, process_packfile, build_repo_from_head};
+use req_packfile::{build_repo_from_head, fetch_refs, process_packfile_and_find_head, request_packfile};
 
 mod objects;
 mod object_headers;
@@ -291,30 +291,38 @@ fn show_command(commit_hash: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn clone_command(repo_url: &str, target_dir: &str) -> io::Result<()> {
-    // Step 1: Fetch refs from the remote repository
+fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
+    // Step 1: Create the target directory if it doesn't exist
+    let target_path = Path::new(clone_to_dir);
+    if !target_path.exists() {
+        println!("Creating directory: {}", clone_to_dir);
+        fs::create_dir_all(target_path)?;
+    } else {
+        println!("Directory already exists: {}", clone_to_dir);
+    }
+
+    // Change the current directory to the target directory
+    std::env::set_current_dir(target_path)?;
+
+    // Step 2: Fetch refs from the remote repository (still needed for refs)
     let git_caps = fetch_refs(repo_url).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to fetch refs: {}", err)))?;
 
-    // Step 2: Display the refs and capabilities
+    // Step 3: Display the refs and capabilities
     println!("Capabilities: {:?}", git_caps.capabilities);
-    if let Some(head) = &git_caps.head {
-        println!("{} points to {}", head.symbolic_ref, head.points_to);
 
-        // Step 3: Use the SHA1 of the HEAD ref to request the packfile
-        if let Some(commit_sha) = git_caps.refs.get(&head.points_to) {
-            println!("Requesting packfile for commit: {}", commit_sha);
-            let response = request_packfile(repo_url, commit_sha).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err)))?;
+    // Step 4: Use the SHA1 of the HEAD ref to request the packfile
+    if let Some(commit_sha) = git_caps.refs.get("HEAD").or_else(|| git_caps.refs.get("refs/heads/master")) {
+        println!("Requesting packfile for commit: {}", commit_sha);
+        let response = request_packfile(repo_url, commit_sha).map_err(|err| io::Error::new(io::ErrorKind::Other, format!("Failed to request packfile: {}", err)))?;
 
-            // Step 4: Process the packfile
-            process_packfile(response, target_dir)?;
+        // Step 5: Process the packfile and find the correct head commit
+        let head_commit = process_packfile_and_find_head(response, clone_to_dir)?;
 
-            // Step 5: After unpacking, build the repo from the HEAD commit
-            build_repo_from_head(commit_sha)?;
-        } else {
-            println!("Could not find SHA1 for HEAD ref: {}", head.points_to);
-        }
+        // Step 6: After unpacking, build the repo from the head commit
+        println!("Building repository from head commit: {}", head_commit.to_hex());
+        build_repo_from_head(&head_commit.to_hex())?;
     } else {
-        println!("Could not determine HEAD ref.");
+        println!("Could not find SHA1 for HEAD ref");
     }
 
     Ok(())
