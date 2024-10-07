@@ -320,7 +320,7 @@ fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
 
         // Step 7: After unpacking, build the repo from the head commit
         println!("Building repository from head commit: {}", head_commit.to_hex());
-        build_repo_from_head(&head_commit.to_hex(), target_path)?;
+        build_repo_from_head(&head_commit.to_hex())?;
 
         // Step 8: Write the HEAD reference and point it to master
         write_ref_to_head(&head_commit.to_hex())?;

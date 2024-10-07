@@ -175,13 +175,13 @@ pub fn request_packfile(repo_url: &str, commit_sha: &str) -> Result<Response, Bo
 }
  */
 
-pub fn build_repo_from_head(commit_sha: &str, target_dir: &Path) -> io::Result<()> {
+pub fn build_repo_from_head(commit_sha: &str) -> io::Result<()> {
     // Step 1: Read the commit object using the commit_sha passed from main
     let commit = GitObject::read(commit_sha)?;
 
     if let GitObject::Commit(commit) = commit {
         // Step 2: Process the tree associated with this commit
-        rebuild_from_tree(commit.tree, target_dir, true)?;
+        rebuild_from_tree(commit.tree, Path::new("."))?;
     } else {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid HEAD commit object"));
     }
@@ -254,45 +254,52 @@ fn find_head_commit(commits: Vec<GitCommit>) -> io::Result<Hash> {
 }
 
 // Rebuilds the file system structure from a Git tree object
-fn rebuild_from_tree(tree_hash: Hash, target_dir: &Path, root: bool) -> io::Result<()> {
+fn rebuild_from_tree(tree_hash: Hash, target_dir: &Path) -> io::Result<()> {
     // Step 1: Read the tree object from the .git/objects directory
     let tree_object = GitObject::read_by_hash(tree_hash)?;
 
     // Step 2: Check if the tree object is actually a tree
     if let GitObject::Tree(entries) = tree_object {
-        for entry in entries {
-            // Handle root directory separately, avoid adding extra target_dir
-            let path: PathBuf = if root {
-                target_dir.join(&entry.name)  // Use target_dir for first call
-            } else {
-                PathBuf::from(&entry.name)    // For subsequent calls, just use the entry's name
-            };
+        //for entry in &entries {
+        //    println!("{} {} {}", entry.mode, entry.object.to_hex(), entry.name);
+        //}
+        //println!("\n");
 
+        // Iterate over the entries in the tree
+        for entry in entries {
+            // Build the full path by appending the entry name to the current target directory
+            let path: PathBuf = target_dir.join(&entry.name);
+            
             // Handle directories
             if entry.mode == "40000" {  // Git mode for directories
                 // If a file exists where the directory should be, remove it
                 if path.exists() && path.is_file() {
+                    //println!("Removing file '{}' to create directory", path.display());
                     fs::remove_file(&path)?;
                 }
 
                 // Create the directory if it does not exist
                 if !path.exists() {
+                    //println!("Creating directory: {:?}", path.display());
                     fs::create_dir_all(&path)?;
                 }
 
-                // Recursively rebuild the subdirectory tree, but pass false for root
-                rebuild_from_tree(entry.object, &path, false)?;
+                // Recursively rebuild the subdirectory tree
+                //println!("Entering directory: {:?}", path.display());
+                rebuild_from_tree(entry.object, &path)?;
 
             } else {
                 // Handle files
                 // If a directory exists where the file should be, remove it
                 if path.exists() && path.is_dir() {
+                    //println!("Removing directory '{}' to create file", path.display());
                     fs::remove_dir_all(&path)?;
                 }
 
                 // Extract the blob and write the contents to the file
                 let blob_object = GitObject::read_by_hash(entry.object)?;
                 if let GitObject::Blob(contents) = blob_object {
+                    //println!("Writing file: {:?}", path.display());
                     let mut file = File::create(&path)?;
                     file.write_all(&contents)?;
                 }
@@ -304,3 +311,4 @@ fn rebuild_from_tree(tree_hash: Hash, target_dir: &Path, root: bool) -> io::Resu
 
     Ok(())
 }
+
