@@ -293,15 +293,15 @@ fn show_command(commit_hash: &str) -> io::Result<()> {
 fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
     // Step 1: Create the target directory if it doesn't exist
     let target_path = Path::new(clone_to_dir);
-    if !target_path.exists() {
-        println!("Creating directory: {}", clone_to_dir);
-        fs::create_dir_all(target_path)?;
-    } else {
-        println!("Directory already exists: {}", clone_to_dir);
-    }
+    // if !target_path.exists() {
+    //     println!("Creating directory: {}", clone_to_dir);
+    //     fs::create_dir_all(target_path)?;
+    // } else {
+    //     println!("Directory already exists: {}", clone_to_dir);
+    // }
 
     // Step 2: Change the current directory to the target directory
-    //std::env::set_current_dir(target_path)?;
+    std::env::set_current_dir(target_path)?;
 
     // Step 3: Initialize the Git repository inside the target directory
     println!("Initializing Git metadata in target directory...");
