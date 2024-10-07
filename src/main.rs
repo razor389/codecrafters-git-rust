@@ -165,7 +165,6 @@ fn cat_file_command(hash: &str, pretty_print: bool) -> io::Result<()> {
 
 fn write_tree_command() -> io::Result<()> {
     let entries = objects::read_current_directory()?;
-
     let tree = objects::GitObject::Tree(entries);
     let hash = tree.hash();
 

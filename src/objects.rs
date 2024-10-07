@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Write, Read};
 use crate::object_headers::GitObjectHeader;
 use std::path::Path;
-
+use regex::Regex;
 
 /// Define a Hash type to represent a 20-byte SHA-1 hash.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,22 +155,26 @@ impl GitObject {
             }
             GitObject::Tree(entries) => {
                 let mut result = Vec::new();
-                
                 for entry in entries {
-                    let mut entry_data = format!("{} {}", entry.mode, entry.name).into_bytes();
-                    entry_data.push(0);
+                    // Serialize the mode and name of the entry, and add a null byte
+                    println!("{} {}\0{}", entry.mode, entry.name, entry.object.to_hex());
+                    let entry_data = format!("{} {}\0", entry.mode, entry.name).into_bytes();
                     result.extend_from_slice(&entry_data);
-                    result.extend_from_slice(entry.object.as_bytes()); // Append the raw 20-byte SHA-1 hash
+            
+                    // Append the raw 20-byte binary SHA-1 hash using entry.object.as_bytes()
+                    let sha1_binary = entry.object.as_bytes(); // Now this is the correct 20-byte raw binary data
+                    result.extend_from_slice(sha1_binary);
                 }
-                let header = format!("tree {}", result.len());
+                
+                // Add the tree header
+                let header = format!("tree {}\0", result.len());
                 
                 let mut full_result = Vec::from(header.as_bytes());
-                full_result.push(0); // Add the null byte explicitly
-                //println!("Tree header: {:?}", full_result);
-                //println!("Total serialized tree size: {}", result.len());
                 full_result.extend(result);
+                
                 full_result
             }
+            
             GitObject::Commit(commit) => {
                 let mut result = Vec::new();
                 
@@ -198,7 +202,7 @@ impl GitObject {
 
                 // Commit message
                 result.extend_from_slice(commit.message.as_bytes());
-
+                result.push(b'\n');
                 let header = format!("commit {}\0", result.len());
                 [header.as_bytes(), &result].concat()
             }
@@ -267,7 +271,7 @@ impl GitObject {
     pub fn parse_commit(data: &[u8]) -> io::Result<GitCommit> {
         let content = std::str::from_utf8(data)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid commit data"))?;
-        
+    
         let mut tree = None;
         let mut parent = None;
         let mut author_name = String::new();
@@ -276,10 +280,12 @@ impl GitObject {
         let mut committer_email = String::new();
         let mut timestamp = 0;
         let mut timezone = String::new();
-        #[allow(unused_assignments)]
         let mut message = String::new();
     
         let mut lines = content.lines();
+        let author_re = Regex::new(r"author (.+) <(.+)> (\d+) (.+)").unwrap();
+        let committer_re = Regex::new(r"committer (.+) <(.+)> (\d+) (.+)").unwrap();
+    
         // Step 1: Parse the metadata (tree, parent, author, committer)
         while let Some(line) = lines.next() {
             if line.is_empty() {
@@ -294,29 +300,20 @@ impl GitObject {
                 parent = Some(Hash::from_bytes(
                     &hex::decode(parent_hash).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?,
                 )?);
-            } else if let Some(author_info) = line.strip_prefix("author ") {
-                // Example format: "author John Doe <john@example.com> 1609459200 +0000"
-                let parts: Vec<&str> = author_info.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    author_name = parts[0..parts.len() - 4].join(" ");
-                    author_email = parts[parts.len() - 4].trim_start_matches('<').trim_end_matches('>').to_string();
-                    timestamp = parts[parts.len() - 2].parse::<u64>().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidData, "Invalid timestamp in author field")
-                    })?;
-                    timezone = parts[parts.len() - 1].to_string();
-                }
-            } else if let Some(committer_info) = line.strip_prefix("committer ") {
-                // Example format: "committer John Doe <john@example.com> 1609459200 +0000"
-                let parts: Vec<&str> = committer_info.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    committer_name = parts[0..parts.len() - 4].join(" ");
-                    committer_email = parts[parts.len() - 4].trim_start_matches('<').trim_end_matches('>').to_string();
-                    // Use the same timestamp and timezone as the author for simplicity
-                    timestamp = parts[parts.len() - 2].parse::<u64>().map_err(|_| {
-                        io::Error::new(io::ErrorKind::InvalidData, "Invalid timestamp in committer field")
-                    })?;
-                    timezone = parts[parts.len() - 1].to_string();
-                }
+            } else if let Some(author_caps) = author_re.captures(line) {
+                author_name = author_caps[1].to_string();
+                author_email = author_caps[2].to_string();
+                timestamp = author_caps[3].parse::<u64>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid timestamp in author field")
+                })?;
+                timezone = author_caps[4].to_string();
+            } else if let Some(committer_caps) = committer_re.captures(line) {
+                committer_name = committer_caps[1].to_string();
+                committer_email = committer_caps[2].to_string();
+                timestamp = committer_caps[3].parse::<u64>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid timestamp in committer field")
+                })?;
+                timezone = committer_caps[4].to_string();
             }
         }
     
@@ -334,7 +331,7 @@ impl GitObject {
             timezone,
             message,
         };
-        //println!("{:?}", commit);
+    
         Ok(commit)
     }
     
@@ -360,7 +357,7 @@ pub fn read_current_directory() -> io::Result<Vec<GitTreeEntry>> {
     for entry in fs::read_dir(current_dir)? {
         let entry = entry?;
         let path = entry.path();
-        let file_name = entry.file_name().into_string().unwrap();
+        let file_name = entry.file_name().to_string_lossy().to_string();
 
         if path.is_file() {
             // Hash the file and get its SHA-1 hash
