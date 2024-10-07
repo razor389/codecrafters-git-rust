@@ -226,7 +226,8 @@ pub fn process_packfile_and_find_head(mut response: Response, target_dir: &str) 
     pack_file.write_all(&packfile_data[12..])?;
 
     // Step 6: Unpack the objects and track commit objects
-    let mut packfile_instance = Packfile::new(&mut pack_file, num_objects);
+    let mut packfile = File::open(&pack_file_path)?;
+    let mut packfile_instance = Packfile::new(&mut packfile, num_objects);
     let commit_objects = packfile_instance.unpack_and_collect_commits()?;
 
     // Step 7: Find the head commit (commit with no parent or most recent based on timestamp)
