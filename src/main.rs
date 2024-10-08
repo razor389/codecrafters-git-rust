@@ -66,11 +66,6 @@ enum Commands {
         #[arg(short = 'm', long = "message")]
         message: String,
     },
-    /// Show the details of a commit object by its SHA-1 hash
-    Show {
-        /// The SHA-1 hash of the commit object to show
-        commit_hash: String,
-    },
     /// Clone a remote repository
     Clone {
         /// URL of the remote repository
@@ -94,7 +89,6 @@ fn main() -> io::Result<()> {
             parent_commits,
             message,
         } => commit_tree_command(tree_sha, parent_commits, message),
-        Commands::Show { commit_hash } => show_command(commit_hash),
         Commands::Clone { repo_url, target_dir } => clone_command(repo_url, target_dir),
     }
 }
@@ -249,45 +243,6 @@ fn format_timestamp(timestamp: u64) -> String {
     let d = UNIX_EPOCH + Duration::from_secs(timestamp);
     let datetime: chrono::DateTime<chrono::Utc> = d.into();
     datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-fn show_command(commit_hash: &str) -> io::Result<()> {
-    // Read the object from the .git/objects directory
-    let git_object = GitObject::read(commit_hash)?;
-
-    // Match on the object type and ensure it's a commit
-    if let GitObject::Commit(commit) = git_object {
-        // Print commit details
-        println!("commit {}", commit_hash);
-        println!("tree {}", commit.tree.to_hex());
-
-        if let Some(parent) = commit.parent {
-            println!("parent {}", parent.to_hex());
-        }
-
-        // Print author and committer details
-        println!(
-            "author {} <{}> {} {}",
-            commit.author_name,
-            commit.author_email,
-            format_timestamp(commit.timestamp),
-            commit.timezone
-        );
-        println!(
-            "committer {} <{}> {} {}",
-            commit.committer_name,
-            commit.committer_email,
-            format_timestamp(commit.timestamp),
-            commit.timezone
-        );
-
-        // Print commit message
-        println!("\n{}", commit.message);
-    } else {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Object is not a commit"));
-    }
-
-    Ok(())
 }
 
 fn clone_command(repo_url: &str, clone_to_dir: &str) -> io::Result<()> {
